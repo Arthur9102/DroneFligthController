@@ -105,7 +105,7 @@ const osMessageQueueAttr_t controlQueue_attributes = {
   .name = "controlQueue"
 };
 /* USER CODE BEGIN PV */
-#define RAD_TO_DEG (180.0f / M_PI) // Chuyển từ radian sang độ
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -199,7 +199,7 @@ int main(void)
   stateQueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &stateQueue_attributes);
 
   /* creation of sensorQueue */
-  sensorQueueHandle = osMessageQueueNew (16, sizeof(uint32_t), &sensorQueue_attributes);
+  sensorQueueHandle = osMessageQueueNew (16, sizeof(MPU6050_ConvertedData), &sensorQueue_attributes);
 
   /* creation of controlQueue */
   controlQueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &controlQueue_attributes);
@@ -574,25 +574,16 @@ void RCTask(void *argument)
 * @param argument: Not used
 * @retval None
 */
-float pitch_kal,pitch_rate;
-float roll_kal,roll_rate;
+float pitch_kal;
+float roll_kal;
 /* USER CODE END Header_StateEstimatorTask */
 void StateEstimatorTask(void *argument)
 {
   /* USER CODE BEGIN StateEstimatorTask */
   MPU6050_ConvertedData conv_data;
-  KalmanEKFFilter kf;
-  KalmanEKF_Init(&kf);
-  if (osMessageQueueGet(sensorQueueHandle, &conv_data, NULL, osWaitForever) == osOK) {
-       roll_measured = atan2f(conv_data.accel_y,
-                             sqrtf(conv_data.accel_x * conv_data.accel_x +
-                                   conv_data.accel_z * conv_data.accel_z));
-       pitch_measured = atan2f(-conv_data.accel_x,
-                              sqrtf(conv_data.accel_y * conv_data.accel_y +
-                                    conv_data.accel_z * conv_data.accel_z));
-       KalmanEKF_Reset(&kf, roll_measured, pitch_measured);
-   }
-
+  Kalman_t kf;
+  Kalman_Init(&kf);
+  float dt = 0.01f;
   /* Infinite loop */
    for (;;) {
        if (osMessageQueueGet(sensorQueueHandle, &conv_data, NULL, osWaitForever) == osOK) {
@@ -603,19 +594,19 @@ void StateEstimatorTask(void *argument)
            pitch_measured = atan2f(-conv_data.accel_x,
                                   sqrtf(conv_data.accel_y * conv_data.accel_y +
                                         conv_data.accel_z * conv_data.accel_z));
-           // Compute acceleration magnitude
-           float acc_magnitude = sqrtf(conv_data.accel_x * conv_data.accel_x +
-                                      conv_data.accel_y * conv_data.accel_y +
-                                      conv_data.accel_z * conv_data.accel_z) * 9.81f; // Convert g to m/s^2
+//           // Compute acceleration magnitude
+//           float acc_magnitude = sqrtf(conv_data.accel_x * conv_data.accel_x +
+//                                      conv_data.accel_y * conv_data.accel_y +
+//                                      conv_data.accel_z * conv_data.accel_z) * 9.81f; // Convert g to m/s^2
            // Use pre-converted and bias-corrected gyro data
-           float p = gyro_x; // Already in rad/s
-           float q = gyro_y;
-           float r = gyro_z;
+           float p = conv_data.gyro_x * (M_PI / 180.0f) - gyro_x_bias;; // Already in rad/s
+           float q = conv_data.gyro_y * (M_PI / 180.0f) - gyro_x_bias;;
+           //float r = conv_data.gyro_x * (M_PI / 180.0f) - gyro_x_bias;;
            // Validate inputs
            if (!isnan(roll_measured) && !isnan(pitch_measured) &&
-               !isnan(p) && !isnan(q) && !isnan(r) && !isnan(acc_magnitude)) {
-               KalmanEKF_Update(&kf, roll_measured, pitch_measured, p, q, r, 0.01f, acc_magnitude);
-               KalmanEKF_GetAttitude(&kf, &roll_kal, &pitch_kal, &roll_rate, &pitch_rate);
+               !isnan(p) && !isnan(q)) {
+                roll_kal = Kalman_Update(&kf, roll_measured , q , dt);
+                pitch_kal = Kalman_Update(&kf,pitch_measured, q, dt);
            } else {
                _status |= 0x10; // Bit 4: Invalid sensor data
            }
