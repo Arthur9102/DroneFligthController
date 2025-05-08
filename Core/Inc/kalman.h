@@ -1,7 +1,7 @@
 /**
  * @file kalman.h
  * @brief Header file for standalone Kalman filter implementation for sensor fusion
- * @author Claude
+ * @author Ho Quang Dung
  * @date May 7, 2025
  */
 

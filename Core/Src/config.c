@@ -15,11 +15,16 @@
 #include "config.h"
 #include "cmsis_os.h"
 
+#define M_PI 3.14159265358979323846
+
 BMP280_HandleTypedef bmp280;
 MPU6050_HandleTypeDef mpu6050;
 
 extern I2C_HandleTypeDef hi2c1;
+extern I2C_HandleTypeDef hi2c3;
 uint8_t _flag = 0;
+
+extern float gyro_x_bias,gyro_y_bias,gyro_z_bias;
 
 /**
  * @brief Initialize BMP280 and MPU6050 sensors
@@ -31,17 +36,17 @@ uint8_t _flag = 0;
  */
 void InitSensor(void) {
     // --- BMP280 ---
-    bmp280.hi2c = &hi2c1;
-    bmp280.dev_addr = 0xEC; // 0x76 << 1 (SDO = GND)
-    bmp280.timeout = 100; // 100ms timeout
-    if (BMP280_Init(&bmp280)) {
-        _flag |= 0x01; // Bit 0: BMP280 OK
-    } else {
-        _flag |= 0x10; // Bit 4: BMP280 error
-    }
-
-    // Short delay to stabilize I2C bus
-    HAL_Delay(10);
+//    bmp280.hi2c = &hi2c3;
+//    bmp280.dev_addr = 0xEC; // 0x76 << 1 (SDO = GND)
+//    bmp280.timeout = 100; // 100ms timeout
+//    if (BMP280_Init(&bmp280)) {
+//        _flag |= 0x01; // Bit 0: BMP280 OK
+//    } else {
+//        _flag |= 0x10; // Bit 4: BMP280 error
+//    }
+//
+//    // Short delay to stabilize I2C bus
+//    HAL_Delay(10);
 
     // --- MPU6050 ---
     mpu6050.hi2c = &hi2c1;
@@ -51,30 +56,6 @@ void InitSensor(void) {
         _flag |= 0x02; // Bit 1: MPU6050 OK
     } else {
         _flag |= 0x20; // Bit 5: MPU6050 error
-    }
-    if (_flag & 0x02) {
-        MPU6050_RawData raw_data;
-        int32_t accel_x_sum = 0, accel_y_sum = 0, accel_z_sum = 0;
-        int32_t gyro_x_sum = 0, gyro_y_sum = 0, gyro_z_sum = 0;
-        const int samples = 100;
-        for (int i = 0; i < samples; i++) {
-            if (MPU6050_ReadRawData(&mpu6050, &raw_data)) {
-                accel_x_sum += raw_data.accel_x;
-                accel_y_sum += raw_data.accel_y;
-                accel_z_sum += raw_data.accel_z - 16384; // Trừ 1g trên trục Z
-                gyro_x_sum += raw_data.gyro_x;
-                gyro_y_sum += raw_data.gyro_y;
-                gyro_z_sum += raw_data.gyro_z;
-            }
-            osDelay(10);
-        }
-        int16_t xa_offs = -(accel_x_sum / samples);
-        int16_t ya_offs = -(accel_y_sum / samples);
-        int16_t za_offs = -(accel_z_sum / samples);
-        int16_t xg_offs = -(gyro_x_sum / samples);
-        int16_t yg_offs = -(gyro_y_sum / samples);
-        int16_t zg_offs = -(gyro_z_sum / samples);
-        MPU6050_SetOffsets(&mpu6050, xa_offs, ya_offs, za_offs, xg_offs, yg_offs, zg_offs);
     }
 }
 
@@ -121,4 +102,21 @@ uint8_t ReadSensor(SensorData *data) {
     }
 
     return success;
+}
+
+void Calib_gyro(){
+    MPU6050_RawData raw_data;
+      int32_t gyro_x_sum = 0, gyro_y_sum = 0, gyro_z_sum = 0;
+      const int samples = 200; // Thu thập 200 mẫu
+      for (int i = 0; i < samples; i++) {
+        if (MPU6050_ReadRawData(&mpu6050, &raw_data)) {
+          gyro_x_sum += raw_data.gyro_x;
+          gyro_y_sum += raw_data.gyro_y;
+          gyro_z_sum += raw_data.gyro_z;
+        }
+        osDelay(10);
+      }
+      gyro_x_bias = (float)(gyro_x_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f; // Chuyển LSB sang rad/s
+      gyro_y_bias = (float)(gyro_y_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
+      gyro_z_bias = (float)(gyro_z_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
 }

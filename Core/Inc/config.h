@@ -41,4 +41,11 @@ void InitSensor(void);
  */
 uint8_t ReadSensor(SensorData *data);
 
+/**
+ * @brief Calib bias of gryo sensor
+ * @param void
+ * @retval 
+ */
+void Calib_gyro();
+
 #endif /* CONFIG_H_ */

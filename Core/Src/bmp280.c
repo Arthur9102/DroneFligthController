@@ -99,7 +99,7 @@ uint8_t BMP280_Init(BMP280_HandleTypedef *bmp) {
 
     // Tính trung bình áp suất ban đầu cho P0
     float sum_pressure = 0;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 10; i++) {
         float temp, press;
         if (BMP280_ReadTemperaturePressure(bmp, &temp, &press)) {
             sum_pressure += press;
@@ -108,7 +108,7 @@ uint8_t BMP280_Init(BMP280_HandleTypedef *bmp) {
         }
         HAL_Delay(50); // Chờ dữ liệu ổn định
     }
-    bmp->P0 = sum_pressure / 5;
+    bmp->P0 = sum_pressure / 10;
 
     return 1; // Thành công
 }

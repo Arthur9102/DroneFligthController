@@ -1,7 +1,7 @@
 /**
  * @file kalman.c
  * @brief Standalone Kalman filter implementation for sensor fusion
- * @author Ho Quang DUng
+ * @author Ho Quang Dung
  * @date May 7, 2025
  */
 
