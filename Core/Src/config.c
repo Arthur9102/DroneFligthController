@@ -14,10 +14,11 @@
 
 #include "config.h"
 #include "cmsis_os.h"
+#include <math.h>
 
 #define M_PI 3.14159265358979323846
 #define MAG_AVAILABLE 0
-
+#define ABS(x) ((x) > 0 ? (x) : -(x))
 BMP280_HandleTypedef bmp280;
 MPU6050_HandleTypeDef mpu6050;
 
@@ -26,6 +27,21 @@ extern I2C_HandleTypeDef hi2c3;
 uint8_t _flag = 0;
 
 extern float gyro_x_bias,gyro_y_bias,gyro_z_bias;
+
+// Các cấu hình cho expo mapping
+#define EXPO_ROLL 0.7            // Hệ số expo cho roll
+#define EXPO_PITCH 0.7           // Hệ số expo cho pitch
+#define EXPO_YAW 0.6             // Hệ số expo cho yaw
+#define EXPO_ALTITUDE 1.0        // Giữ tuyến tính cho độ cao
+
+// Các cấu hình slew rate
+#define SLEW_RATE_MAX 100.0      // Tốc độ thay đổi tối đa của đầu ra (đơn vị/chu kỳ)
+
+// Các biến lưu giá trị đầu ra trước đó cho slew rate limiting
+static double prev_motor1_output = 0.0;
+static double prev_motor2_output = 0.0;
+static double prev_motor3_output = 0.0;
+static double prev_motor4_output = 0.0;
 
 /**
  * @brief Initialize BMP280 and MPU6050 sensors
@@ -152,3 +168,78 @@ float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, f
     
     return *yaw_state;
 }
+
+// Hàm áp dụng expo mapping
+double apply_expo(double input, double expo_factor) {
+    // Xác định dấu của input
+    double sign = (input >= 0.0) ? 1.0 : -1.0;
+    double abs_input = ABS(input);
+    
+    // Chuẩn hóa input về khoảng [0, 1] để áp dụng expo
+    // Giả sử input có giá trị tối đa là 90.0 (dựa trên MaxOutput trong PID_INIT)
+    double normalized_input = abs_input / 90.0;
+    
+    // Áp dụng hàm mũ
+    double expo_output = pow(normalized_input, expo_factor);
+    
+    // Chuyển về thang đo ban đầu và khôi phục dấu
+    return sign * expo_output * 90.0;
+}
+
+// Hàm áp dụng deadband
+double apply_deadband(double input, double deadband) {
+    if (ABS(input) < deadband) {
+        return 0.0;
+    } else {
+        double sign = (input > 0.0) ? 1.0 : -1.0;
+        return sign * (ABS(input) - deadband);
+    }
+}
+
+// Hàm áp dụng slew rate limiting
+double apply_slew_rate(double target, double current, double max_rate) {
+    double delta = target - current;
+    
+    if (delta > max_rate) {
+        return current + max_rate;
+    } else if (delta < -max_rate) {
+        return current - max_rate;
+    } else {
+        return target;
+    }
+}
+
+// Hàm chuyển đổi từ đầu ra PID sang đầu ra động cơ với các cải tiến
+void calculate_motor_outputs(double z_output, double roll_output, double pitch_output, double yaw_output,
+                           double *motor1, double *motor2, double *motor3, double *motor4) {
+    // Áp dụng expo mapping
+    double expo_roll = apply_expo(roll_output, EXPO_ROLL);
+    double expo_pitch = apply_expo(pitch_output, EXPO_PITCH);
+    double expo_yaw = apply_expo(yaw_output, EXPO_YAW);
+    // Nếu cần, có thể áp dụng expo cho z (độ cao)
+    // double expo_z = apply_expo(z_output, EXPO_ALTITUDE);
+    
+    // // Áp dụng deadband nếu cần
+    // double db_roll = apply_deadband(expo_roll, DEFAULT_DEADBAND);
+    // double db_pitch = apply_deadband(expo_pitch, DEFAULT_DEADBAND);
+    // double db_yaw = apply_deadband(expo_yaw, DEFAULT_DEADBAND);
+    
+    // Tính toán giá trị throttle cho mỗi động cơ
+    double throttle_1 = z_output - expo_roll + expo_pitch + expo_yaw;
+    double throttle_2 = z_output + expo_roll - expo_pitch + expo_yaw;
+    double throttle_3 = z_output + expo_roll + expo_pitch - expo_yaw;
+    double throttle_4 = z_output - expo_roll- expo_pitch - expo_yaw;
+    
+    // Áp dụng slew rate limiting
+    *motor1 = apply_slew_rate(throttle_1, prev_motor1_output, SLEW_RATE_MAX);
+    *motor2 = apply_slew_rate(throttle_2, prev_motor2_output, SLEW_RATE_MAX);
+    *motor3 = apply_slew_rate(throttle_3, prev_motor3_output, SLEW_RATE_MAX);
+    *motor4 = apply_slew_rate(throttle_4, prev_motor4_output, SLEW_RATE_MAX);
+    
+    // Cập nhật giá trị trước đó
+    prev_motor1_output = *motor1;
+    prev_motor2_output = *motor2;
+    prev_motor3_output = *motor3;
+    prev_motor4_output = *motor4;
+}
+

@@ -132,16 +132,16 @@ double _kd_roll = 0;
 double _kp_pitch = 1.4;
 double _ki_pitch = 0.052;
 double _kd_pitch = 0;
-double _kp_z = 1.4;
-double _ki_z = 0.2;
-double _kd_z = 0.75;
-double _kp_yaw = 1;
-double _ki_yaw 0.02;
-double _kd_yaw =0;
+// double _kp_z = 1.4;
+// double _ki_z = 0.2;
+// double _kd_z = 0.75;
+// double _kp_yaw = 1;
+// double _ki_yaw = 0.02;
+// double _kd_yaw =0;
 double _roll_set = 0;
 double _pitch_set = 0;
-double _yaw_set = 0;
-double _z_set = 100;  //cm
+// double _yaw_set = 0;
+// double _z_set = 100;  //cm
 double _output_roll,_output_pitch,_output_yaw,_output_z;
 double _roll_measured;
 double _pitch_measured;
@@ -182,19 +182,9 @@ void StateEstimatorTask(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-//BMP280_HandleTypedef bmp280;
-//float temperature = 0.0f;
-//float pressure = 0.0f;
-//uint8_t _flag = 0;
-//MPU6050_RawData sensor_data;
 uint8_t _status = 0;
 extern uint8_t _flag;
-//float accel_x =0.0f;
-//float accel_y =0.0f;
-//float accel_z =0.0f;
-//float gyro_x =0.0f;
-//float gyro_y =0.0f;
-//float gyro_z =0.0f;
+
 osMessageQueueId_t sensorQueueHandle;
 const osMessageQueueAttr_t sensorQueue_attributes = {
   .name = "sensorQueue"
@@ -224,10 +214,10 @@ int main(void)
     10, 90.0, -90.0, &_kp_roll, &_ki_roll, &_kd_roll);
   PID_INIT(&_pid_pitch,&_pitch_set,&_output_pitch, &_pitch_measured,
     10, 90.0, -90.0, &_kp_pitch, &_ki_pitch, &_kd_pitch);
-  PID_INIT(&_pid_z,&_z_set,&_output_z, &_altitude,
-      10, 90.0, -90.0, &_kp_z, &_ki_z, &_kd_z);
-  PID_INIT(&_pid_yaw,&_yaw_set,&_output_yaw, &_yaw_measured,
-    10, 1000.0, 0.0, &_kp_yaw, &_ki_yaw, &_kd_yaw);
+  // PID_INIT(&_pid_z,&_z_set,&_output_z, &_altitude,
+  //     10, 90.0, -90.0, &_kp_z, &_ki_z, &_kd_z);
+  // PID_INIT(&_pid_yaw,&_yaw_set,&_output_yaw, &_yaw_measured,
+  //   10, 1000.0, 0.0, &_kp_yaw, &_ki_yaw, &_kd_yaw);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -263,7 +253,7 @@ int main(void)
           gyro_y_sum += raw_data.gyro_y;
           gyro_z_sum += raw_data.gyro_z;
         }
-        osDelay(10);
+        HAL_Delay(10);
       }
       gyro_x_bias = (float)(gyro_x_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f; // Chuyển LSB sang rad/s
       gyro_y_bias = (float)(gyro_y_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
@@ -721,6 +711,7 @@ void PidTask(void *argument)
 {
   /* USER CODE BEGIN PidTask */
   uint32_t flags;
+  double motor1_output, motor2_output, motor3_output, motor4_output;
   /* Infinite loop */
   for(;;)
   {
@@ -728,12 +719,20 @@ void PidTask(void *argument)
     if(flags & FLAGS_PID){
       PID_CONTROLLER(&_pid_roll);
       PID_CONTROLLER(&_pid_pitch);
-      PID_CONTROLLER(&_pid_yaw);
-      PID_CONTROLLER(&_pid_z);
-      int16_t throttle_1 = (int16_t)(_output_z - _output_roll + _output_pitch + _output_yaw);
-      int16_t throttle_2 = (int16_t)(_output_z + _output_roll - _output_pitch + _output_yaw);
-      int16_t throttle_3 = (int16_t)(_output_z + _output_roll + _output_pitch - _output_yaw);
-      int16_t throttle_4 = (int16_t)(_output_z - _output_roll - _output_pitch - _output_yaw);
+      // PID_CONTROLLER(&_pid_yaw);
+      // PID_CONTROLLER(&_pid_z);
+      // Tính toán đầu ra động cơ với các cải tiến
+      calculate_motor_outputs(_output_z, _output_roll, _output_pitch, 0,
+                            &motor1_output, &motor2_output, &motor3_output, &motor4_output);
+                  // Chuyển đổi sang int16_t để tương thích với các hàm do_motorX
+      int16_t throttle_1 = (int16_t)(motor1_output);
+      int16_t throttle_2 = (int16_t)(motor2_output);
+      int16_t throttle_3 = (int16_t)(motor3_output);
+      int16_t throttle_4 = (int16_t)(motor4_output);
+      // int16_t throttle_1 = (int16_t)(_output_z - _output_roll + _output_pitch + _output_yaw);
+      // int16_t throttle_2 = (int16_t)(_output_z + _output_roll - _output_pitch + _output_yaw);
+      // int16_t throttle_3 = (int16_t)(_output_z + _output_roll + _output_pitch - _output_yaw);
+      // int16_t throttle_4 = (int16_t)(_output_z - _output_roll - _output_pitch - _output_yaw);
       do_motor1(throttle_1);
       do_motor2(throttle_2);
       do_motor3(throttle_3);
@@ -809,7 +808,7 @@ void RCTask(void *argument)
               HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, 0);
           }
       }
-      _z_set = map_ibus_to_altitude(ibus.left_horizontal);
+      _output_z = map_ibus_to_altitude(ibus.left_horizontal);
   	  // TIM2 -> CCR1 = 1000 + (ibus.left_horizontal - 1000 + 15);
   	  // TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
   	  // TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
@@ -867,22 +866,22 @@ void StateEstimatorTask(void *argument)
           float angular_rate_magnitude = sqrtf(p*p + q*q + r*r);
 
           // Detect if drone is relatively static (for bias estimation)
-          if (angular_rate_magnitude < 0.05f) {  // Less than ~3 deg/sec total rotation
-            static_duration++;
+          // if (angular_rate_magnitude < 0.05f) {  // Less than ~3 deg/sec total rotation
+          //   static_duration++;
             
-            // During static periods, estimate gyro bias
-            if (static_duration > 100) {  // After 1 second of being static
-                // Slowly update yaw gyro bias estimate
-                yaw_gyro_bias = yaw_gyro_bias * 0.999f + r * 0.001f;
-            }
+          //   // During static periods, estimate gyro bias
+          //   if (static_duration > 100) {  // After 1 second of being static
+          //       // Slowly update yaw gyro bias estimate
+          //       yaw_gyro_bias = yaw_gyro_bias * 0.999f + r * 0.001f;
+          //   }
             
-            // When static, slightly favor more magnetometer (if available)
-            // or just slow down integration to reduce drift
-            yaw_cf_alpha = 0.95f;  // Lower alpha during static periods
-          } else {
-              static_duration = 0;
-              yaw_cf_alpha = YAW_CF_ALPHA;  // Normal alpha during motion
-          }
+          //   // When static, slightly favor more magnetometer (if available)
+          //   // or just slow down integration to reduce drift
+          //   yaw_cf_alpha = 0.95f;  // Lower alpha during static periods
+          // } else {
+          //     static_duration = 0;
+          //     yaw_cf_alpha = YAW_CF_ALPHA;  // Normal alpha during motion
+          // }
 
            // Validate inputs
            if (!isnan(roll) && !isnan(pitch) &&
@@ -900,12 +899,12 @@ void StateEstimatorTask(void *argument)
                 // _yaw_measured = yaw_integrated;
 
                 // Without magnetometer, pass NaN to only use gyro
-                float mag_yaw = NAN;  // No magnetometer in this example
+                // float mag_yaw = NAN;  // No magnetometer in this example
                 
-                // Apply drift correction for yaw using complementary filter
-                float corrected_yaw_rate = r - yaw_gyro_bias;  // Apply estimated bias
-                _yaw_measured = estimate_yaw_complementary(corrected_yaw_rate, mag_yaw, 
-                                                          dt, &yaw_state) * RAD_TO_DEG;
+                // // Apply drift correction for yaw using complementary filter
+                // float corrected_yaw_rate = r - yaw_gyro_bias;  // Apply estimated bias
+                // _yaw_measured = estimate_yaw_complementary(corrected_yaw_rate, mag_yaw, 
+                //                                           dt, &yaw_state) * RAD_TO_DEG;
            } else {
                _status |= 0x10; // Bit 4: Invalid sensor data
            }
