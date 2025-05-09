@@ -9,6 +9,26 @@
   * Copyright (c) 2025 STMicroelectronics.
   * All rights reserved.
   *
+  * 
++------------------+        +------------------------+
+|    SensorTask    | -----> |   sensorQueueHandle    |
++------------------+        +------------------------+
+                                     |
+                                     v
+                         +------------------------+
+                         |  StateEstimatorTask    |
+                         | Kalman + r tích phân   |
+                         +------------------------+
+                                     |
+                                     v
+                       (EventFlag or global update)
+                                     |
+                                     v
++------------------+      +----------------+     +------------------+
+|     RCTask       | ---> |  PID_CONTROLLER | -->|     PidTask      |
+| ibus -> _z_set   |      | Each axis       |    | throttle_x calc  |
++------------------+      +----------------+     +------------------+
+
   * This software is licensed under terms that can be found in the LICENSE file
   * in the root directory of this software component.
   * If no LICENSE file comes with this software, it is provided AS-IS.
@@ -99,26 +119,37 @@ osMessageQueueId_t controlQueueHandle;
 const osMessageQueueAttr_t controlQueue_attributes = {
   .name = "controlQueue"
 };
+/* Definitions for runpidEvent */
+osEventFlagsId_t runpidEventHandle;
+const osEventFlagsAttr_t runpidEvent_attributes = {
+  .name = "runpidEvent"
+};
 /* USER CODE BEGIN PV */
 /*========================= PID Pareameter define ================================*/
-double _kp_roll;
-double _ki_roll;
-double _kd_roll;
-double _kp_pitch;
-double _ki_pitch;
-double _kd_pitch;
-double _kp_z;
-double _ki_z;
-double _kd_z;
+double _kp_roll = 1.4;
+double _ki_roll = 0.052;
+double _kd_roll = 0;
+double _kp_pitch = 1.4;
+double _ki_pitch = 0.052;
+double _kd_pitch = 0;
+double _kp_z = 1.4;
+double _ki_z = 0.2;
+double _kd_z = 0.75;
+double _kp_yaw = 1;
+double _ki_yaw 0.02;
+double _kd_yaw =0;
 double _roll_set = 0;
 double _pitch_set = 0;
+double _yaw_set = 0;
 double _z_set = 100;  //cm
-double _output_roll,_output_pitch,_output_z;
+double _output_roll,_output_pitch,_output_yaw,_output_z;
 double _roll_measured;
 double _pitch_measured;
+double _yaw_measured;
 double _altitude; //cm
 PID_PARA _pid_roll;
 PID_PARA _pid_pitch;
+PID_PARA _pid_yaw;
 PID_PARA _pid_z;
 /*========================= RC Pareameter define ================================*/
 extern uint8_t usart2_rx_data;
@@ -190,11 +221,13 @@ int main(void)
 
   /* USER CODE BEGIN Init */
   PID_INIT(&_pid_roll,&_roll_set,&_output_roll, &_roll_measured,
-    10, 90.0, 0.0, &_kp_roll, &_ki_roll, &_kd_roll);
+    10, 90.0, -90.0, &_kp_roll, &_ki_roll, &_kd_roll);
   PID_INIT(&_pid_pitch,&_pitch_set,&_output_pitch, &_pitch_measured,
-    10, 90.0, 0.0, &_kp_pitch, &_ki_pitch, &_kd_pitch);
+    10, 90.0, -90.0, &_kp_pitch, &_ki_pitch, &_kd_pitch);
   PID_INIT(&_pid_z,&_z_set,&_output_z, &_altitude,
-      10, 90.0, 0.0, &_kp_z, &_ki_z, &_kd_z);
+      10, 90.0, -90.0, &_kp_z, &_ki_z, &_kd_z);
+  PID_INIT(&_pid_yaw,&_yaw_set,&_output_yaw, &_yaw_measured,
+    10, 1000.0, 0.0, &_kp_yaw, &_ki_yaw, &_kd_yaw);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -212,6 +245,31 @@ int main(void)
   MX_I2C3_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  mpu6050.hi2c = &hi2c1;
+  mpu6050.dev_addr = MPU6050_ADDRESS; // 0x68 (AD0 = GND)
+  mpu6050.timeout = 100; // 100ms timeout
+  if (MPU6050_Init(&mpu6050)) {
+	  _status |= 0x02; // Bit 1: MPU6050 OK
+  } else {
+	  _status |= 0x20; // Bit 5: MPU6050 error
+  }
+  if (_status & 0x02) {
+      MPU6050_RawData raw_data;
+      int32_t gyro_x_sum = 0, gyro_y_sum = 0, gyro_z_sum = 0;
+      const int samples = 200; // Thu thập 200 mẫu
+      for (int i = 0; i < samples; i++) {
+        if (MPU6050_ReadRawData(&mpu6050, &raw_data)) {
+          gyro_x_sum += raw_data.gyro_x;
+          gyro_y_sum += raw_data.gyro_y;
+          gyro_z_sum += raw_data.gyro_z;
+        }
+        osDelay(10);
+      }
+      gyro_x_bias = (float)(gyro_x_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f; // Chuyển LSB sang rad/s
+      gyro_y_bias = (float)(gyro_y_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
+      gyro_z_bias = (float)(gyro_z_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
+  }
+
   LL_USART_EnableIT_RXNE(USART1);
   LL_USART_EnableIT_RXNE(USART2);
 
@@ -294,6 +352,10 @@ int main(void)
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
+
+  /* Create the event(s) */
+  /* creation of runpidEvent */
+  runpidEventHandle = osEventFlagsNew(&runpidEvent_attributes);
 
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
@@ -658,14 +720,25 @@ void MotorTask(void *argument)
 void PidTask(void *argument)
 {
   /* USER CODE BEGIN PidTask */
-
+  uint32_t flags;
   /* Infinite loop */
   for(;;)
   {
-    PID_CONTROLLER(&_pid_roll);
-    PID_CONTROLLER(&_pid_pitch);
-    PID_CONTROLLER(&_pid_z);
-    osDelay(10);
+    flags = osEventFlagsWait(runpidEventHandle, FLAGS_PID, osFlagsWaitAny, osWaitForever);
+    if(flags & FLAGS_PID){
+      PID_CONTROLLER(&_pid_roll);
+      PID_CONTROLLER(&_pid_pitch);
+      PID_CONTROLLER(&_pid_yaw);
+      PID_CONTROLLER(&_pid_z);
+      int16_t throttle_1 = (int16_t)(_output_z - _output_roll + _output_pitch + _output_yaw);
+      int16_t throttle_2 = (int16_t)(_output_z + _output_roll - _output_pitch + _output_yaw);
+      int16_t throttle_3 = (int16_t)(_output_z + _output_roll + _output_pitch - _output_yaw);
+      int16_t throttle_4 = (int16_t)(_output_z - _output_roll - _output_pitch - _output_yaw);
+      do_motor1(throttle_1);
+      do_motor2(throttle_2);
+      do_motor3(throttle_3);
+      do_motor4(throttle_4);
+	  }
   }
   /* USER CODE END PidTask */
 }
@@ -680,51 +753,19 @@ void PidTask(void *argument)
 void SensorTask(void *argument)
 {
   /* USER CODE BEGIN SensorTask */
-//  SensorData sensor_data = {0};
-	  mpu6050.hi2c = &hi2c1;
-	  mpu6050.dev_addr = MPU6050_ADDRESS; // 0x68 (AD0 = GND)
-	  mpu6050.timeout = 100; // 100ms timeout
-	  if (MPU6050_Init(&mpu6050)) {
-		  _status |= 0x02; // Bit 1: MPU6050 OK
-	  } else {
-		  _status |= 0x20; // Bit 5: MPU6050 error
-	  }
-	  if (_status & 0x02) {
-	      MPU6050_RawData raw_data;
-	      int32_t gyro_x_sum = 0, gyro_y_sum = 0, gyro_z_sum = 0;
-	      const int samples = 200; // Thu thập 200 mẫu
-	      for (int i = 0; i < samples; i++) {
-	        if (MPU6050_ReadRawData(&mpu6050, &raw_data)) {
-	          gyro_x_sum += raw_data.gyro_x;
-	          gyro_y_sum += raw_data.gyro_y;
-	          gyro_z_sum += raw_data.gyro_z;
-	        }
-	        osDelay(10);
-	      }
-	      gyro_x_bias = (float)(gyro_x_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f; // Chuyển LSB sang rad/s
-	      gyro_y_bias = (float)(gyro_y_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
-	      gyro_z_bias = (float)(gyro_z_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
-	    }
-	  /* Infinite loop */
-	  for(;;)
-	  {
-	    if (_status & 0x02) {
-	      MPU6050_RawData raw_data;
-	      MPU6050_ConvertedData conv_data;
-	      if (MPU6050_ReadRawData(&mpu6050, &raw_data)) {
-	          MPU6050_ConvertData(&mpu6050, &raw_data, &conv_data);
-//	          accel_x = conv_data.accel_x ;
-//	          accel_y = conv_data.accel_y ;
-//	          accel_z = conv_data.accel_z ;
-//	          gyro_x = conv_data.gyro_x * (M_PI / 180.0f) - gyro_x_bias; //rad/s
-//	          gyro_y = conv_data.gyro_y * (M_PI / 180.0f) - gyro_y_bias;
-//	          gyro_z = conv_data.gyro_z * (M_PI / 180.0f) - gyro_z_bias;
-	          if (osMessageQueuePut(sensorQueueHandle, &conv_data, 0, 0) != osOK) {
-	             _status |= 0x80; // Bit 7: Queue error
-	          }
-	      }
-	  }
-  osDelay(10);
+  /* Infinite loop */
+  for(;;){
+    if (_status & 0x02) {
+      MPU6050_RawData raw_data;
+      MPU6050_ConvertedData conv_data;
+      if (MPU6050_ReadRawData(&mpu6050, &raw_data)) {
+        MPU6050_ConvertData(&mpu6050, &raw_data, &conv_data);
+        if (osMessageQueuePut(sensorQueueHandle, &conv_data, 0, 0) != osOK) {
+        _status |= 0x80; // Bit 7: Queue error
+        }
+      }
+    }
+    osDelay(10);
   }
   /* USER CODE END SensorTask */
 }
@@ -756,7 +797,7 @@ void RCTask(void *argument)
               {
                 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
                 //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 1);
-              }
+              } 
               else
               {
                 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
@@ -769,11 +810,11 @@ void RCTask(void *argument)
           }
       }
       _z_set = map_ibus_to_altitude(ibus.left_horizontal);
-  	  TIM2 -> CCR1 = 1000 + (ibus.left_horizontal - 1000 + 15);
-  	  TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-  	  TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-  	  TIM5 -> CCR4 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-    osDelay(10);
+  	  // TIM2 -> CCR1 = 1000 + (ibus.left_horizontal - 1000 + 15);
+  	  // TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+  	  // TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+  	  // TIM5 -> CCR4 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+    osDelay(30);
   }
   /* USER CODE END RCTask */
 }
@@ -784,8 +825,8 @@ void RCTask(void *argument)
 * @param argument: Not used
 * @retval None
 */
-// float pitch_kal;
-// float roll_kal;
+float pitch;
+float roll;
 /* USER CODE END Header_StateEstimatorTask */
 void StateEstimatorTask(void *argument)
 {
@@ -794,32 +835,81 @@ void StateEstimatorTask(void *argument)
   Kalman_t kf;
   Kalman_Init(&kf);
   float dt = 0.01f;
+
+  float yaw_state = 0.0f;  // Persistent yaw state for complementary filter
+  float yaw_gyro_bias = 0.0f;  // Estimated gyro bias for yaw axis
+
+  // Adaptive filter parameters
+  float yaw_cf_alpha = YAW_CF_ALPHA;  // Base complementary filter coefficient
+  uint32_t static_duration = 0;        // Counter for detecting static periods
+
   /* Infinite loop */
    for (;;) {
        if (osMessageQueueGet(sensorQueueHandle, &conv_data, NULL, osWaitForever) == osOK) {
            // Compute measured angles
-          float roll = atan2f(conv_data.accel_y,
+          roll = atan2f(conv_data.accel_y,
                                 sqrtf(conv_data.accel_x * conv_data.accel_x +
                                        conv_data.accel_z * conv_data.accel_z));
-          float pitch = atan2f(-conv_data.accel_x,
+          pitch = atan2f(-conv_data.accel_x,
                                 sqrtf(conv_data.accel_y * conv_data.accel_y +
                                         conv_data.accel_z * conv_data.accel_z));
 //           // Compute acceleration magnitude
 //           float acc_magnitude = sqrtf(conv_data.accel_x * conv_data.accel_x +
 //                                      conv_data.accel_y * conv_data.accel_y +
 //                                      conv_data.accel_z * conv_data.accel_z) * 9.81f; // Convert g to m/s^2
-           // Use pre-converted and bias-corrected gyro data
-           float p = conv_data.gyro_x * (M_PI / 180.0f) - gyro_x_bias;; // Already in rad/s
-           float q = conv_data.gyro_y * (M_PI / 180.0f) - gyro_x_bias;;
-           //float r = conv_data.gyro_x * (M_PI / 180.0f) - gyro_x_bias;;
+          // Use pre-converted and bias-corrected gyro data
+          float p = conv_data.gyro_x * (M_PI / 180.0f) - gyro_x_bias; // Already in rad/s
+          float q = conv_data.gyro_y * (M_PI / 180.0f) - gyro_y_bias;
+          float r = conv_data.gyro_z * (M_PI / 180.0f) - gyro_z_bias;
+          //float r = conv_data.gyro_x * (M_PI / 180.0f) - gyro_x_bias;
+
+          // Calculate overall angular rate magnitude
+          float angular_rate_magnitude = sqrtf(p*p + q*q + r*r);
+
+          // Detect if drone is relatively static (for bias estimation)
+          if (angular_rate_magnitude < 0.05f) {  // Less than ~3 deg/sec total rotation
+            static_duration++;
+            
+            // During static periods, estimate gyro bias
+            if (static_duration > 100) {  // After 1 second of being static
+                // Slowly update yaw gyro bias estimate
+                yaw_gyro_bias = yaw_gyro_bias * 0.999f + r * 0.001f;
+            }
+            
+            // When static, slightly favor more magnetometer (if available)
+            // or just slow down integration to reduce drift
+            yaw_cf_alpha = 0.95f;  // Lower alpha during static periods
+          } else {
+              static_duration = 0;
+              yaw_cf_alpha = YAW_CF_ALPHA;  // Normal alpha during motion
+          }
+
            // Validate inputs
            if (!isnan(roll) && !isnan(pitch) &&
                !isnan(p) && !isnan(q)) {
-                _roll_measured = Kalman_Update(&kf, roll , q , dt);
-                _pitch_measured = Kalman_Update(&kf, pitch, q, dt);
+                _roll_measured = Kalman_Update(&kf, roll , p , dt) * RAD_TO_DEG;
+                _pitch_measured = Kalman_Update(&kf, pitch, q , dt) * RAD_TO_DEG;
+                
+                // static float yaw_integrated = 0.0f;
+                // yaw_integrated += r * dt;
+                
+                // /* Normalize yaw to -180 to +180 range */
+                // while (yaw_integrated > M_PI) yaw_integrated -= 2.0f * M_PI;
+                // while (yaw_integrated < -M_PI) yaw_integrated += 2.0f * M_PI;
+                
+                // _yaw_measured = yaw_integrated;
+
+                // Without magnetometer, pass NaN to only use gyro
+                float mag_yaw = NAN;  // No magnetometer in this example
+                
+                // Apply drift correction for yaw using complementary filter
+                float corrected_yaw_rate = r - yaw_gyro_bias;  // Apply estimated bias
+                _yaw_measured = estimate_yaw_complementary(corrected_yaw_rate, mag_yaw, 
+                                                          dt, &yaw_state) * RAD_TO_DEG;
            } else {
                _status |= 0x10; // Bit 4: Invalid sensor data
            }
+           osEventFlagsSet(runpidEventHandle, FLAGS_PID);
        }
        osDelay(10); // 100Hz
   }

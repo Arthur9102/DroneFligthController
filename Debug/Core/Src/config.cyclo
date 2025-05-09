@@ -1,0 +1,8 @@
+../Core/Src/config.c:38:6:InitSensor	3
+../Core/Src/config.c:68:9:ReadSensor	5
+../Core/Src/config.c:108:6:Calib_gyro	3
+../Core/Src/config.c:125:6:do_motor1	2
+../Core/Src/config.c:126:6:do_motor2	2
+../Core/Src/config.c:127:6:do_motor3	2
+../Core/Src/config.c:128:6:do_motor4	2
+../Core/Src/config.c:131:7:estimate_yaw_complementary	3

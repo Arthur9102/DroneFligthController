@@ -126,7 +126,7 @@ uint8_t BMP280_ReadTemperaturePressure(BMP280_HandleTypedef *bmp, float *tempera
     }
 
     uint8_t data[6];
-    if (HAL_I2C_Mem_Read(bmp->hi2c, bmp->dev_addr << 1, BMP280_REG_DATA, 1, data, 6, bmp->timeout) != HAL_OK) {
+    if (HAL_I2C_Mem_Read(bmp->hi2c, bmp->dev_addr , BMP280_REG_DATA, 1, data, 6, bmp->timeout) != HAL_OK) { //<< 1
         return 0;
     }
 

@@ -1,0 +1,13 @@
+../Drivers/CMSIS/Include/core_cm4.h:1672:26:__NVIC_GetPriorityGrouping	1
+../Drivers/CMSIS/Include/core_cm4.h:1684:22:__NVIC_EnableIRQ	2
+../Drivers/CMSIS/Include/core_cm4.h:1814:22:__NVIC_SetPriority	2
+../Drivers/CMSIS/Include/core_cm4.h:1861:26:NVIC_EncodePriority	2
+../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_ll_usart.h:410:22:LL_USART_Enable	1
+../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_ll_usart.h:1479:22:LL_USART_ConfigAsyncMode	1
+../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_ll_bus.h:409:22:LL_AHB1_GRP1_EnableClock	1
+../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_ll_bus.h:1704:22:LL_APB2_GRP1_EnableClock	1
+../Core/Src/FS_IA10B.c:13:16:ibus_check_CS	4
+../Core/Src/FS_IA10B.c:26:7:ibus_message	1
+../Core/Src/FS_IA10B.c:40:15:ibus_active_failsafe	1
+../Core/Src/FS_IA10B.c:45:8:map_ibus_to_altitude	3
+../Core/Src/FS_IA10B.c:59:7:FS_IA10B_USART1_initialization	1

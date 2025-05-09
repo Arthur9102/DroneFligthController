@@ -4,6 +4,12 @@
 #include "bmp280.h"
 #include "mpu6050.h"
 
+#define CONSTRAIN(x, min, max) ((x) < (min) ? (min) : ((x) > (max) ? (max) : (x)))
+
+#define YAW_CF_ALPHA 0.98f  // Complementary filter coefficient (gyro trust factor)
+#define SAMPLING_PERIOD 0.01f  // 10ms (100Hz) sampling rate
+
+#define FLAGS_PID							0x00000001U
 /**
  * @brief Sensor data structure for BMP280 and MPU6050
  */
@@ -47,5 +53,13 @@ uint8_t ReadSensor(SensorData *data);
  * @retval 
  */
 void Calib_gyro();
+
+void do_motor1(int16_t t);
+void do_motor2(int16_t t);
+void do_motor3(int16_t t);
+void do_motor4(int16_t t);
+
+
+float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, float *yaw_state);
 
 #endif /* CONFIG_H_ */

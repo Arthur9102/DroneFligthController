@@ -186,41 +186,44 @@ void TIM1_UP_TIM10_IRQHandler(void)
 void USART1_IRQHandler(void)
 {
   /* USER CODE BEGIN USART1_IRQn 0 */
-	static unsigned char cnt = 0;
-	if(LL_USART_IsActiveFlag_RXNE(USART1)){
-			LL_USART_ClearFlag_RXNE(USART1);
-			usart1_rx_data = LL_USART_ReceiveData8(USART1);
-			usart1_rx_flag = 1;
+	static uint8_t cnt = 0;
 
-			switch(cnt)
-			{
-			case 0:
-				if(usart1_rx_data == 0x20)
-				{
-					ibus_rx_buf[cnt] = usart1_rx_data;
-					cnt++;
-				}
-				break;
-			case 1:
-				if(usart1_rx_data == 0x40)
-				{
-					ibus_rx_buf[cnt] = usart1_rx_data;
-					cnt++;
-				}
-				else
-					cnt = 0;
-				break;
-			case 31:
-				ibus_rx_buf[cnt] = usart1_rx_data;
-				cnt = 0;
-				ibus_rx_cplt_flag = 1;
-				break;
-			default:
-				ibus_rx_buf[cnt] = usart1_rx_data;
-				cnt++;
-				break;
-			}
-	}
+  //  Overrun (ORE)
+  if (LL_USART_IsActiveFlag_ORE(USART1)) {
+    LL_USART_ClearFlag_ORE(USART1);
+    volatile uint8_t dummy = LL_USART_ReceiveData8(USART1);
+    return;
+  }
+
+
+  if (LL_USART_IsActiveFlag_RXNE(USART1)) {
+    uint8_t data = LL_USART_ReceiveData8(USART1);
+    usart1_rx_data = data;
+    usart1_rx_flag = 1;
+
+    switch (cnt) {
+      case 0:
+        if (data == 0x20) {
+          ibus_rx_buf[cnt++] = data;
+        }
+        break;
+      case 1:
+        if (data == 0x40) {
+          ibus_rx_buf[cnt++] = data;
+        } else {
+          cnt = 0;
+        }
+        break;
+      case 31:
+        ibus_rx_buf[cnt] = data;
+        cnt = 0;
+        ibus_rx_cplt_flag = 1;  // Báo hiệu nhận đủ 32 byte
+        break;
+      default:
+        ibus_rx_buf[cnt++] = data;
+        break;
+    }
+  }
   /* USER CODE END USART1_IRQn 0 */
   /* USER CODE BEGIN USART1_IRQn 1 */
 

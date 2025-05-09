@@ -1,0 +1,12 @@
+../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_ll_usart.h:1770:26:LL_USART_IsActiveFlag_ORE	1
+../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_ll_usart.h:1792:26:LL_USART_IsActiveFlag_RXNE	1
+../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_ll_usart.h:1934:22:LL_USART_ClearFlag_ORE	1
+../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_ll_usart.h:2403:25:LL_USART_ReceiveData8	1
+../Core/Src/stm32f4xx_it.c:77:6:NMI_Handler	1
+../Core/Src/stm32f4xx_it.c:92:6:HardFault_Handler	1
+../Core/Src/stm32f4xx_it.c:107:6:MemManage_Handler	1
+../Core/Src/stm32f4xx_it.c:122:6:BusFault_Handler	1
+../Core/Src/stm32f4xx_it.c:137:6:UsageFault_Handler	1
+../Core/Src/stm32f4xx_it.c:152:6:DebugMon_Handler	1
+../Core/Src/stm32f4xx_it.c:172:6:TIM1_UP_TIM10_IRQHandler	1
+../Core/Src/stm32f4xx_it.c:186:6:USART1_IRQHandler	9

@@ -16,6 +16,7 @@
 #include "cmsis_os.h"
 
 #define M_PI 3.14159265358979323846
+#define MAG_AVAILABLE 0
 
 BMP280_HandleTypedef bmp280;
 MPU6050_HandleTypeDef mpu6050;
@@ -36,14 +37,14 @@ extern float gyro_x_bias,gyro_y_bias,gyro_z_bias;
  */
 void InitSensor(void) {
     // --- BMP280 ---
-//    bmp280.hi2c = &hi2c3;
-//    bmp280.dev_addr = 0xEC; // 0x76 << 1 (SDO = GND)
-//    bmp280.timeout = 100; // 100ms timeout
-//    if (BMP280_Init(&bmp280)) {
-//        _flag |= 0x01; // Bit 0: BMP280 OK
-//    } else {
-//        _flag |= 0x10; // Bit 4: BMP280 error
-//    }
+   bmp280.hi2c = &hi2c3;
+   bmp280.dev_addr = 0xEC; // 0x76 << 1 (SDO = GND)
+   bmp280.timeout = 100; // 100ms timeout
+   if (BMP280_Init(&bmp280)) {
+       _flag |= 0x01; // Bit 0: BMP280 OK
+   } else {
+       _flag |= 0x10; // Bit 4: BMP280 error
+   }
 //
 //    // Short delay to stabilize I2C bus
 //    HAL_Delay(10);
@@ -119,4 +120,35 @@ void Calib_gyro(){
       gyro_x_bias = (float)(gyro_x_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f; // Chuyển LSB sang rad/s
       gyro_y_bias = (float)(gyro_y_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
       gyro_z_bias = (float)(gyro_z_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
+}
+
+void do_motor1(int16_t t) { TIM2->CCR1 = 1000 + 0.85*CONSTRAIN(t, 0, 1000); } //limit 85% motor 
+void do_motor2(int16_t t) { TIM5->CCR2 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
+void do_motor3(int16_t t) { TIM5->CCR3 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
+void do_motor4(int16_t t) { TIM5->CCR4 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
+// TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+  	  // TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+  	  // TIM5 -> CCR4 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+/* Function to estimate yaw using complementary filter */
+float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, float *yaw_state) {
+    // 1. Integrate gyro rate to get change in angle
+    float gyro_delta = gyro_yaw_rate * dt;
+    
+    // 2. Apply complementary filter
+    if (!MAG_AVAILABLE) {
+        // No magnetometer data available - only use gyro
+        *yaw_state += gyro_delta;
+    } else {
+        // Fuse gyro and magnetometer data
+        // High-pass filter on gyro (short-term accuracy)
+        // Low-pass filter on magnetometer (long-term stability)
+        *yaw_state = YAW_CF_ALPHA * (*yaw_state + gyro_delta) + 
+                     (1.0f - YAW_CF_ALPHA) * mag_yaw;
+    }
+    
+    // 3. Normalize yaw to range [-π, π]
+    while (*yaw_state > M_PI) *yaw_state -= 2.0f * M_PI;
+    while (*yaw_state < -M_PI) *yaw_state += 2.0f * M_PI;
+    
+    return *yaw_state;
 }

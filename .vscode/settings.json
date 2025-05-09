@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "*.json": "cpp",
+        "pid.h": "c",
+        "config.h": "c",
+        "mpu6050.h": "c",
+        "compare": "c",
+        "cstdint": "c",
+        "fs_ia10b.h": "c",
+        "kalman.h": "c"
+    }
+}

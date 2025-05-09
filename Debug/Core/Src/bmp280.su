@@ -1,0 +1,5 @@
+../Core/Src/bmp280.c:24:9:bmp280_read8	40	static
+../Core/Src/bmp280.c:39:6:bmp280_read_calib_data	56	static
+../Core/Src/bmp280.c:68:9:BMP280_Init	56	static
+../Core/Src/bmp280.c:123:9:BMP280_ReadTemperaturePressure	376	static
+../Core/Src/bmp280.c:174:7:BMP280_CalculateAltitude	16	static

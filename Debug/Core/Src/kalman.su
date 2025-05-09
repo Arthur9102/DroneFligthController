@@ -1,0 +1,7 @@
+../Core/Src/kalman.c:16:7:Kalman_Init	16	static
+../Core/Src/kalman.c:41:7:Kalman_SetParameters	24	static
+../Core/Src/kalman.c:53:7:Kalman_SetAngle	16	static
+../Core/Src/kalman.c:66:8:Kalman_Update	56	static
+../Core/Src/kalman.c:108:7:Kalman_CalculateAccelAngles	24	static
+../Core/Src/kalman.c:127:7:Kalman_UpdateAttitude	32	static
+../Core/Src/kalman.c:148:7:Kalman_ProcessSensorFusion	32	static
