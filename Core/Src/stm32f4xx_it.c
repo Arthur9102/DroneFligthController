@@ -185,49 +185,57 @@ void TIM1_UP_TIM10_IRQHandler(void)
   */
 void USART1_IRQHandler(void)
 {
-  /* USER CODE BEGIN USART1_IRQn 0 */
-	static uint8_t cnt = 0;
+    /* USER CODE BEGIN USART1_IRQn 0 */
+    static uint8_t cnt = 0;
+    static const uint8_t BUFFER_SIZE = 32;
 
-  //  Overrun (ORE)
-  if (LL_USART_IsActiveFlag_ORE(USART1)) {
-    LL_USART_ClearFlag_ORE(USART1);
-    volatile uint8_t dummy = LL_USART_ReceiveData8(USART1);
-    return;
-  }
-
-
-  if (LL_USART_IsActiveFlag_RXNE(USART1)) {
-    uint8_t data = LL_USART_ReceiveData8(USART1);
-    usart1_rx_data = data;
-    usart1_rx_flag = 1;
-
-    switch (cnt) {
-      case 0:
-        if (data == 0x20) {
-          ibus_rx_buf[cnt++] = data;
-        }
-        break;
-      case 1:
-        if (data == 0x40) {
-          ibus_rx_buf[cnt++] = data;
-        } else {
-          cnt = 0;
-        }
-        break;
-      case 31:
-        ibus_rx_buf[cnt] = data;
-        cnt = 0;
-        ibus_rx_cplt_flag = 1;  // Báo hiệu nhận đủ 32 byte
-        break;
-      default:
-        ibus_rx_buf[cnt++] = data;
-        break;
+    // Handle Overrun
+    if (LL_USART_IsActiveFlag_ORE(USART1)) {
+        LL_USART_ClearFlag_ORE(USART1);
+        volatile uint8_t dummy = LL_USART_ReceiveData8(USART1);
+        cnt = 0;  // Reset counter on error
+        return;
     }
-  }
-  /* USER CODE END USART1_IRQn 0 */
-  /* USER CODE BEGIN USART1_IRQn 1 */
 
-  /* USER CODE END USART1_IRQn 1 */
+    if (LL_USART_IsActiveFlag_RXNE(USART1)) {
+        uint8_t data = LL_USART_ReceiveData8(USART1);
+        usart1_rx_data = data;
+        usart1_rx_flag = 1;
+
+        // Bounds protection
+        if (cnt >= BUFFER_SIZE) {
+            cnt = 0;
+            return;
+        }
+
+        switch (cnt) {
+            case 0:
+                if (data == 0x20) {
+                    ibus_rx_buf[cnt++] = data;
+                }
+                break;
+            case 1:
+                if (data == 0x40) {
+                    ibus_rx_buf[cnt++] = data;
+                } else {
+                    cnt = 0;  // Reset on invalid header
+                }
+                break;
+            case 31:
+                ibus_rx_buf[cnt] = data;
+                cnt = 0;
+                __disable_irq();  // Critical section start
+                ibus_rx_cplt_flag = 1;
+                __enable_irq();   // Critical section end
+                break;
+            default:
+                if (cnt < BUFFER_SIZE) {
+                    ibus_rx_buf[cnt++] = data;
+                }
+                break;
+        }
+    }
+    /* USER CODE END USART1_IRQn 0 */
 }
 
 /* USER CODE BEGIN 1 */
