@@ -24,10 +24,10 @@
      kalman->bias = 0.0f;         // Initial bias estimate
      
      /* Initialize error covariance matrix */
-     kalman->P[0][0] = 1.0f;
+     kalman->P[0][0] = 10.0f;  // Higher initial angle uncertainty
      kalman->P[0][1] = 0.0f;
      kalman->P[1][0] = 0.0f;
-     kalman->P[1][1] = 1.0f;
+     kalman->P[1][1] = 10.0f;  // Higher initial bias uncertainty
  }
  
  /**
@@ -38,7 +38,8 @@
   * @param Q_bias Process noise variance for bias
   * @param R_measure Measurement noise variance
   */
- void Kalman_SetParameters(Kalman_t *kalman, float Q_angle, float Q_bias, float R_measure) {
+ void Kalman_SetParameters(Kalman_t *kalman, float Q_angle, float Q_bias, float R_measure) 
+ {
      kalman->Q_angle = Q_angle;
      kalman->Q_bias = Q_bias;
      kalman->R_measure = R_measure;
@@ -50,7 +51,8 @@
   * @param kalman Pointer to Kalman filter structure
   * @param initialAngle Initial angle value in degrees
   */
- void Kalman_SetAngle(Kalman_t *kalman, float initialAngle) {
+ void Kalman_SetAngle(Kalman_t *kalman, float initialAngle) 
+ {
      kalman->angle = initialAngle;
  }
  

@@ -138,13 +138,13 @@ void Calib_gyro(){
       gyro_z_bias = (float)(gyro_z_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
 }
 
-void do_motor1(int16_t t) { TIM2->CCR1 = 1000 + 0.85*CONSTRAIN(t, 0, 1000); } //limit 85% motor 
-void do_motor2(int16_t t) { TIM5->CCR2 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
-void do_motor3(int16_t t) { TIM5->CCR3 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
-void do_motor4(int16_t t) { TIM5->CCR4 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
+void do_motor3(int16_t t) { TIM5->CCR2 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor
+void do_motor4(int16_t t) { TIM2->CCR1 = 1000 +  0.85*CONSTRAIN(t, 0, 1000); } //limit 85% motor
+void do_motor2(int16_t t) { TIM5->CCR3 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
+void do_motor1(int16_t t) { TIM5->CCR4 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
 // TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-  	  // TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-  	  // TIM5 -> CCR4 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+// TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+// TIM5 -> CCR4 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
 /* Function to estimate yaw using complementary filter */
 float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, float *yaw_state) {
     // 1. Integrate gyro rate to get change in angle
@@ -177,13 +177,13 @@ double apply_expo(double input, double expo_factor) {
     
     // Chuẩn hóa input về khoảng [0, 1] để áp dụng expo
     // Giả sử input có giá trị tối đa là 90.0 (dựa trên MaxOutput trong PID_INIT)
-    double normalized_input = abs_input / 90.0;
+    double normalized_input = abs_input / 25.0;
     
     // Áp dụng hàm mũ
     double expo_output = pow(normalized_input, expo_factor);
     
     // Chuyển về thang đo ban đầu và khôi phục dấu
-    return sign * expo_output * 90.0;
+    return sign * expo_output * 25.0;
 }
 
 // Hàm áp dụng deadband
@@ -215,9 +215,10 @@ void calculate_motor_outputs(double z_output, double roll_output, double pitch_o
     // Áp dụng expo mapping
     double expo_roll = apply_expo(roll_output, EXPO_ROLL);
     double expo_pitch = apply_expo(pitch_output, EXPO_PITCH);
-    double expo_yaw = apply_expo(yaw_output, EXPO_YAW);
+    // double expo_yaw = apply_expo(yaw_output, EXPO_YAW);
     // Nếu cần, có thể áp dụng expo cho z (độ cao)
     // double expo_z = apply_expo(z_output, EXPO_ALTITUDE);
+    double expo_yaw = 0;
     
     // // Áp dụng deadband nếu cần
     // double db_roll = apply_deadband(expo_roll, DEFAULT_DEADBAND);
@@ -225,10 +226,10 @@ void calculate_motor_outputs(double z_output, double roll_output, double pitch_o
     // double db_yaw = apply_deadband(expo_yaw, DEFAULT_DEADBAND);
     
     // Tính toán giá trị throttle cho mỗi động cơ
-    double throttle_1 = z_output - expo_roll + expo_pitch + expo_yaw;
-    double throttle_2 = z_output + expo_roll - expo_pitch + expo_yaw;
-    double throttle_3 = z_output + expo_roll + expo_pitch - expo_yaw;
-    double throttle_4 = z_output - expo_roll- expo_pitch - expo_yaw;
+    double throttle_1 = z_output + expo_roll - expo_pitch + expo_yaw;
+    double throttle_2 = z_output - expo_roll + expo_pitch + expo_yaw;
+    double throttle_3 = z_output - expo_roll - expo_pitch - expo_yaw;
+    double throttle_4 = z_output + expo_roll + expo_pitch - expo_yaw;
     
     // Áp dụng slew rate limiting
     *motor1 = apply_slew_rate(throttle_1, prev_motor1_output, SLEW_RATE_MAX);

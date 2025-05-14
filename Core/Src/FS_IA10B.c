@@ -47,7 +47,7 @@ unsigned char ibus_active_failsafe(FS_IA10B_ibus* ibus)
     float min_in = 1000.0f;
     float max_in = 2000.0f;
     float min_out = 0.0f;
-    float max_out = 100.0f; //cm
+    float max_out = 1000.0f;
 
     if (ibus_value < min_in) ibus_value = min_in;
     if (ibus_value > max_in) ibus_value = max_in;
