@@ -14,7 +14,10 @@
 
 #include "config.h"
 #include "cmsis_os.h"
+#include "main.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
 
 #define M_PI 3.14159265358979323846
 #define MAG_AVAILABLE 0
@@ -35,7 +38,7 @@ extern float gyro_x_bias,gyro_y_bias,gyro_z_bias;
 #define EXPO_ALTITUDE 1.0        // Giữ tuyến tính cho độ cao
 
 // Các cấu hình slew rate
-#define SLEW_RATE_MAX 100.0      // Tốc độ thay đổi tối đa của đầu ra (đơn vị/chu kỳ)
+#define SLEW_RATE_MAX 20.0      // Tốc độ thay đổi tối đa của đầu ra (đơn vị/chu kỳ)
 
 // Các biến lưu giá trị đầu ra trước đó cho slew rate limiting
 static double prev_motor1_output = 0.0;
@@ -139,7 +142,7 @@ void Calib_gyro(){
 }
 
 void do_motor3(int16_t t) { TIM5->CCR2 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor
-void do_motor4(int16_t t) { TIM2->CCR1 = 1000 +  0.85*CONSTRAIN(t, 0, 1000); } //limit 85% motor
+void do_motor4(int16_t t) { TIM2->CCR1 = 1000 + 0.85*CONSTRAIN(t, 0, 1000); } //limit 85% motor
 void do_motor2(int16_t t) { TIM5->CCR3 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
 void do_motor1(int16_t t) { TIM5->CCR4 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
 // TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
@@ -244,3 +247,17 @@ void calculate_motor_outputs(double z_output, double roll_output, double pitch_o
     prev_motor4_output = *motor4;
 }
 
+char tx_buffer[64];
+
+void send_uart(const char* data) {
+    for (uint16_t i = 0; i < strlen(data); i++) {
+        while (!LL_USART_IsActiveFlag_TXE(USART1));
+        LL_USART_TransmitData8(USART1, data[i]);
+    }
+    while (!LL_USART_IsActiveFlag_TC(USART1)); // Chờ gửi xong
+}
+
+void send_sensor_data(float roll, float pitch) {
+    sprintf(tx_buffer, "{\"roll\":%.2f,\"pitch\":%.2f}\n", roll, pitch);
+    send_uart(tx_buffer);
+}

@@ -66,4 +66,7 @@ float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, f
 void calculate_motor_outputs(double z_output, double roll_output, double pitch_output, double yaw_output,
                            double *motor1, double *motor2, double *motor3, double *motor4);
 
+void send_uart(const char* data);
+void send_sensor_data(float roll, float pitch);
+
 #endif /* CONFIG_H_ */

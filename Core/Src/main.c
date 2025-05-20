@@ -73,6 +73,7 @@ I2C_HandleTypeDef hi2c1;
 I2C_HandleTypeDef hi2c3;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim10;
 
 /* Definitions for motorTask */
 osThreadId_t motorTaskHandle;
@@ -170,6 +171,7 @@ static void MX_USART1_UART_Init(void);
 static void MX_TIM5_Init(void);
 static void MX_I2C3_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM10_Init(void);
 void MotorTask(void *argument);
 void PidTask(void *argument);
 void SensorTask(void *argument);
@@ -234,6 +236,7 @@ int main(void)
   MX_TIM5_Init();
   MX_I2C3_Init();
   MX_TIM2_Init();
+  MX_TIM10_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -572,6 +575,37 @@ static void MX_TIM5_Init(void)
 }
 
 /**
+  * @brief TIM10 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM10_Init(void)
+{
+
+  /* USER CODE BEGIN TIM10_Init 0 */
+
+  /* USER CODE END TIM10_Init 0 */
+
+  /* USER CODE BEGIN TIM10_Init 1 */
+
+  /* USER CODE END TIM10_Init 1 */
+  htim10.Instance = TIM10;
+  htim10.Init.Prescaler = 7999;
+  htim10.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim10.Init.Period = 10;
+  htim10.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim10.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim10) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM10_Init 2 */
+
+  /* USER CODE END TIM10_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -695,6 +729,15 @@ void PidTask(void *argument)
   {
     flags = osEventFlagsWait(runpidEventHandle, FLAGS_PID, osFlagsWaitAny, osWaitForever);
     if(flags & FLAGS_PID){
+      if (!(_status & 0x02)) {
+        // Nếu MPU6050 không hoạt động, không thực hiện PID
+        do_motor1(0);
+        do_motor2(0);
+        do_motor3(0);
+        do_motor4(0);
+        continue;
+      }
+      // Nếu MPU6050 hoạt động, thực hiện PI       
       if(_output_z > 0){
         count++;
         if(count >= 10){
@@ -768,8 +811,13 @@ void SensorTask(void *argument)
       gyro_y_bias = (float)(gyro_y_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
       gyro_z_bias = (float)(gyro_z_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
   }
+  uint32_t tick;
+  tick = osKernelGetTickCount();
+  // HAL_Delay(1000);
   /* Infinite loop */
   for(;;){
+    tick += 10U; // Tăng tick lên 10ms
+    // Đọc dữ liệu cảm biến mỗi 10ms
     if (_status & 0x02) {
       MPU6050_RawData raw_data;
       MPU6050_ConvertedData conv_data;
@@ -780,7 +828,7 @@ void SensorTask(void *argument)
         }
       }
     }
-    osDelay(10);
+    osDelayUntil(tick); // Đợi cho đến khi tick >= 10ms
   }
   /* USER CODE END SensorTask */
 }
@@ -854,7 +902,7 @@ void StateEstimatorTask(void *argument)
   Kalman_Init(&kf_pitch);
 
   float dt = 0.01f;
-
+  char uart_buffer[100];
   /* Infinite loop */
    for (;;) {
     if (osMessageQueueGet(sensorQueueHandle, &conv_data, NULL, osWaitForever) == osOK) {
@@ -879,6 +927,7 @@ void StateEstimatorTask(void *argument)
             !isnan(p) && !isnan(q)) {
             _roll_measured = Kalman_Update(&kf_roll, roll , p , dt) * RAD_TO_DEG;
             _pitch_measured = Kalman_Update(&kf_pitch, pitch, q , dt) * RAD_TO_DEG;
+            send_sensor_data(_roll_measured, _pitch_measured);
         } else {
             _status |= 0x10; // Bit 4: Invalid sensor data
         }
