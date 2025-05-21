@@ -16,8 +16,8 @@
 #include "cmsis_os.h"
 #include "main.h"
 #include <math.h>
-#include <stdio.h>
-#include <string.h>
+//#include <stdio.h>
+//#include <string.h>
 
 #define M_PI 3.14159265358979323846
 #define MAG_AVAILABLE 0
@@ -145,9 +145,7 @@ void do_motor3(int16_t t) { TIM5->CCR2 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.2
 void do_motor4(int16_t t) { TIM2->CCR1 = 1000 + 0.85*CONSTRAIN(t, 0, 1000); } //limit 85% motor
 void do_motor2(int16_t t) { TIM5->CCR3 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
 void do_motor1(int16_t t) { TIM5->CCR4 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
-// TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-// TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-// TIM5 -> CCR4 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+
 /* Function to estimate yaw using complementary filter */
 float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, float *yaw_state) {
     // 1. Integrate gyro rate to get change in angle
@@ -172,21 +170,22 @@ float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, f
     return *yaw_state;
 }
 
+#define MAX_INPUT_RANGE 250.0
+#define NORM_FACTOR (1.0/MAX_INPUT_RANGE)
+
 // Hàm áp dụng expo mapping
 double apply_expo(double input, double expo_factor) {
-    // Xác định dấu của input
+    if (expo_factor == 1.0) return input;  // Linear case
+    if (input == 0.0) return 0.0;  // Optimization
+
     double sign = (input >= 0.0) ? 1.0 : -1.0;
-    double abs_input = ABS(input);
+    double abs_input = fabs(input);
+    double normalized = abs_input * NORM_FACTOR;
     
-    // Chuẩn hóa input về khoảng [0, 1] để áp dụng expo
-    // Giả sử input có giá trị tối đa là 90.0 (dựa trên MaxOutput trong PID_INIT)
-    double normalized_input = abs_input / 25.0;
+    // Prevent pow() domain error
+    if (normalized > 1.0) normalized = 1.0;
     
-    // Áp dụng hàm mũ
-    double expo_output = pow(normalized_input, expo_factor);
-    
-    // Chuyển về thang đo ban đầu và khôi phục dấu
-    return sign * expo_output * 25.0;
+    return sign * pow(normalized, expo_factor) * MAX_INPUT_RANGE;
 }
 
 // Hàm áp dụng deadband
@@ -201,63 +200,75 @@ double apply_deadband(double input, double deadband) {
 
 // Hàm áp dụng slew rate limiting
 double apply_slew_rate(double target, double current, double max_rate) {
-    double delta = target - current;
+    if (max_rate <= 0.0) return current;  // Invalid rate protection
     
-    if (delta > max_rate) {
-        return current + max_rate;
-    } else if (delta < -max_rate) {
-        return current - max_rate;
-    } else {
-        return target;
-    }
+    double delta = target - current;
+    if (fabs(delta) <= max_rate) return target;
+    
+    return current + (delta > 0.0 ? max_rate : -max_rate);
 }
 
-// Hàm chuyển đổi từ đầu ra PID sang đầu ra động cơ với các cải tiến
+#define MOTOR_MIN_OUTPUT 0.0
+#define MOTOR_MAX_OUTPUT 1000.0
+#define MIXING_SCALE 0.5f    // Scale factor for roll/pitch/yaw mixing
+
+/**
+ * @brief Calculate motor outputs based on control inputs
+ * @param z_output Throttle input (0 to 1000)
+ * @param roll_output Roll control input (-250 to 250)
+ * @param pitch_output Pitch control input (-250 to 250)
+ * @param yaw_output Yaw control input (-250 to 250)
+ * @param motor1 Pointer to motor1 output (Front Right)
+ * @param motor2 Pointer to motor2 output (Front Left)
+ * @param motor3 Pointer to motor3 output (Back Right)
+ * @param motor4 Pointer to motor4 output (Back Left)
+ */
 void calculate_motor_outputs(double z_output, double roll_output, double pitch_output, double yaw_output,
                            double *motor1, double *motor2, double *motor3, double *motor4) {
-    // Áp dụng expo mapping
-    double expo_roll = apply_expo(roll_output, EXPO_ROLL);
-    double expo_pitch = apply_expo(pitch_output, EXPO_PITCH);
-    // double expo_yaw = apply_expo(yaw_output, EXPO_YAW);
-    // Nếu cần, có thể áp dụng expo cho z (độ cao)
-    // double expo_z = apply_expo(z_output, EXPO_ALTITUDE);
-    double expo_yaw = 0;
-    
-    // // Áp dụng deadband nếu cần
-    // double db_roll = apply_deadband(expo_roll, DEFAULT_DEADBAND);
-    // double db_pitch = apply_deadband(expo_pitch, DEFAULT_DEADBAND);
-    // double db_yaw = apply_deadband(expo_yaw, DEFAULT_DEADBAND);
-    
-    // Tính toán giá trị throttle cho mỗi động cơ
-    double throttle_1 = z_output + expo_roll - expo_pitch + expo_yaw;
-    double throttle_2 = z_output - expo_roll + expo_pitch + expo_yaw;
-    double throttle_3 = z_output - expo_roll - expo_pitch - expo_yaw;
-    double throttle_4 = z_output + expo_roll + expo_pitch - expo_yaw;
-    
-    // Áp dụng slew rate limiting
+    // Input validation
+    if (!motor1 || !motor2 || !motor3 || !motor4) {
+        return;
+    }
+
+    // Apply expo curves with mixing scale
+    double expo_roll = apply_expo(roll_output, EXPO_ROLL) * MIXING_SCALE;
+    double expo_pitch = apply_expo(pitch_output, EXPO_PITCH) * MIXING_SCALE;
+    double expo_yaw = apply_expo(yaw_output, EXPO_YAW) * MIXING_SCALE;
+
+    // Calculate base motor outputs
+    double throttle_1 = z_output + expo_roll - expo_pitch + expo_yaw;  // Front Right
+    double throttle_2 = z_output - expo_roll + expo_pitch + expo_yaw;  // Front Left
+    double throttle_3 = z_output - expo_roll - expo_pitch - expo_yaw;  // Back Right
+    double throttle_4 = z_output + expo_roll + expo_pitch - expo_yaw;  // Back Left
+
+    // Find maximum output for scaling
+    double max_output = throttle_1;
+    max_output = (throttle_2 > max_output) ? throttle_2 : max_output;
+    max_output = (throttle_3 > max_output) ? throttle_3 : max_output;
+    max_output = (throttle_4 > max_output) ? throttle_4 : max_output;
+
+    // Scale outputs if necessary
+    if (max_output > MOTOR_MAX_OUTPUT) {
+        double scale = MOTOR_MAX_OUTPUT / max_output;
+        throttle_1 *= scale;
+        throttle_2 *= scale;
+        throttle_3 *= scale;
+        throttle_4 *= scale;
+    }
+
+    // Apply slew rate limiting
     *motor1 = apply_slew_rate(throttle_1, prev_motor1_output, SLEW_RATE_MAX);
     *motor2 = apply_slew_rate(throttle_2, prev_motor2_output, SLEW_RATE_MAX);
     *motor3 = apply_slew_rate(throttle_3, prev_motor3_output, SLEW_RATE_MAX);
     *motor4 = apply_slew_rate(throttle_4, prev_motor4_output, SLEW_RATE_MAX);
-    
-    // Cập nhật giá trị trước đó
+
+    // Update previous values
     prev_motor1_output = *motor1;
     prev_motor2_output = *motor2;
     prev_motor3_output = *motor3;
     prev_motor4_output = *motor4;
 }
 
-char tx_buffer[64];
 
-void send_uart(const char* data) {
-    for (uint16_t i = 0; i < strlen(data); i++) {
-        while (!LL_USART_IsActiveFlag_TXE(USART1));
-        LL_USART_TransmitData8(USART1, data[i]);
-    }
-    while (!LL_USART_IsActiveFlag_TC(USART1)); // Chờ gửi xong
-}
 
-void send_sensor_data(float roll, float pitch) {
-    sprintf(tx_buffer, "{\"roll\":%.2f,\"pitch\":%.2f}\n", roll, pitch);
-    send_uart(tx_buffer);
-}
+

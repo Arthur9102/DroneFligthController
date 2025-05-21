@@ -29,7 +29,12 @@ typedef struct {
     float mpu_gyro_z;      // Gyroscope Z (°/s)
     float mpu_temperature; // Temperature (°C)
     uint8_t mpu_status;    // 1: Success, 0: Failed
-} SensorData;
+}SensorData;
+
+typedef struct {
+    float roll;
+    float pitch;
+}Data_uart;
 
 extern BMP280_HandleTypedef bmp280;
 extern MPU6050_HandleTypeDef mpu6050;
@@ -66,7 +71,6 @@ float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, f
 void calculate_motor_outputs(double z_output, double roll_output, double pitch_output, double yaw_output,
                            double *motor1, double *motor2, double *motor3, double *motor4);
 
-void send_uart(const char* data);
-void send_sensor_data(float roll, float pitch);
+
 
 #endif /* CONFIG_H_ */

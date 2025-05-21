@@ -1,4 +1,3 @@
-
 /*
  * pid.c
  *
@@ -10,7 +9,7 @@
 #include "pid.h"
 
 #define  NULL ((void*)0)
-#define ALPHA 1 // not fil
+#define ALPHA 0.95 // not fil
 
 void PID_INIT(PID_PARA *pid, double *target, double *output, double *measure,
                double sample_time, double outmax, double outmin, double *kp, double *ki, double *kd) {
@@ -85,5 +84,30 @@ void PID_CONTROLLER(PID_PARA *pid) {
     pid->last_error2 = pid->last_error1;
     pid->last_error1 = pid->error;
     pid->output_last = *pid->output;
+}
+
+void CascadedPID_Init(CascadedPID_t *cpid,
+                      double *angle_target, double *angle_measure,
+                      double *rate_measure, double *output,
+                      double sample_time,
+                      double angle_kp, double angle_ki, double angle_kd,
+                      double rate_kp, double rate_ki, double rate_kd) {
+    // Initialize angle (outer) loop
+    PID_INIT(&cpid->angle, angle_target, &cpid->rate_setpoint, angle_measure,
+             sample_time, 250.0, -250.0, &angle_kp, &angle_ki, &angle_kd);
+             
+    // Initialize rate (inner) loop                 
+    PID_INIT(&cpid->rate, &cpid->rate_setpoint, output, rate_measure,
+             sample_time, 500.0, -500.0, &rate_kp, &rate_ki, &rate_kd);
+}
+
+void CascadedPID_Update(CascadedPID_t *cpid) {
+    // Update outer loop (angle)
+    PID_CONTROLLER(&cpid->angle);
+    
+    // Rate setpoint is automatically updated through pointer
+    
+    // Update inner loop (rate)
+    PID_CONTROLLER(&cpid->rate);
 }
 

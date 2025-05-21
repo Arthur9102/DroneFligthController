@@ -75,18 +75,20 @@ I2C_HandleTypeDef hi2c3;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim10;
 
-/* Definitions for motorTask */
-osThreadId_t motorTaskHandle;
-const osThreadAttr_t motorTask_attributes = {
-  .name = "motorTask",
-  .stack_size = 128 * 4,
+UART_HandleTypeDef huart6;
+
+/* Definitions for UartSendTask */
+osThreadId_t UartSendTaskHandle;
+const osThreadAttr_t UartSendTask_attributes = {
+  .name = "UartSendTask",
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for pidTask */
 osThreadId_t pidTaskHandle;
 const osThreadAttr_t pidTask_attributes = {
   .name = "pidTask",
-  .stack_size = 128 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for sensorTask */
@@ -107,18 +109,8 @@ const osThreadAttr_t rcTask_attributes = {
 osThreadId_t stateTask05Handle;
 const osThreadAttr_t stateTask05_attributes = {
   .name = "stateTask05",
-  .stack_size = 128 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
-};
-/* Definitions for stateQueue */
-osMessageQueueId_t stateQueueHandle;
-const osMessageQueueAttr_t stateQueue_attributes = {
-  .name = "stateQueue"
-};
-/* Definitions for controlQueue */
-osMessageQueueId_t controlQueueHandle;
-const osMessageQueueAttr_t controlQueue_attributes = {
-  .name = "controlQueue"
 };
 /* Definitions for runpidEvent */
 osEventFlagsId_t runpidEventHandle;
@@ -128,10 +120,10 @@ const osEventFlagsAttr_t runpidEvent_attributes = {
 /* USER CODE BEGIN PV */
 /*========================= PID Pareameter define ================================*/
 double _kp_roll = 0.7657;
-double _ki_roll = 0.06616;
+double _ki_roll = 0.01616;
 double _kd_roll = 0.03016;
 double _kp_pitch = 0.7657;
-double _ki_pitch = 0.06616;
+double _ki_pitch = 0.01616;
 double _kd_pitch = 0.03016;
 // double _kp_z = 1.4;
 // double _ki_z = 0.2;
@@ -172,7 +164,8 @@ static void MX_TIM5_Init(void);
 static void MX_I2C3_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM10_Init(void);
-void MotorTask(void *argument);
+static void MX_USART6_UART_Init(void);
+void UartTask(void *argument);
 void PidTask(void *argument);
 void SensorTask(void *argument);
 void RCTask(void *argument);
@@ -191,7 +184,10 @@ osMessageQueueId_t sensorQueueHandle;
 const osMessageQueueAttr_t sensorQueue_attributes = {
   .name = "sensorQueue"
 };
-
+osMessageQueueId_t uartQueueHandle;
+const osMessageQueueAttr_t uartQueueQueue_attributes = {
+  .name = "uartQueue"
+};
 float gyro_x_bias = 0.0f, gyro_y_bias = 0.0f, gyro_z_bias = 0.0f;
 /* USER CODE END 0 */
 
@@ -213,13 +209,13 @@ int main(void)
 
   /* USER CODE BEGIN Init */
   PID_INIT(&_pid_roll,&_roll_set,&_output_roll, &_roll_measured,
-    10, 25.0, -25.0, &_kp_roll, &_ki_roll, &_kd_roll);
+    10, 250.0, -250.0, &_kp_roll, &_ki_roll, &_kd_roll);
   PID_INIT(&_pid_pitch,&_pitch_set,&_output_pitch, &_pitch_measured,
-    10, 25.0, -25.0, &_kp_pitch, &_ki_pitch, &_kd_pitch);
+    10, 250.0, -250.0, &_kp_pitch, &_ki_pitch, &_kd_pitch);
   // PID_INIT(&_pid_z,&_z_set,&_output_z, &_altitude,
   //     10, 90.0, -90.0, &_kp_z, &_ki_z, &_kd_z);
   // PID_INIT(&_pid_yaw,&_yaw_set,&_output_yaw, &_yaw_measured,
-  //   10, 1000.0, 0.0, &_kp_yaw, &_ki_yaw, &_kd_yaw);
+  //   10, 1000.0, 0.0, &_kp_yaw,        &_ki_yaw, &_kd_yaw);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -237,6 +233,7 @@ int main(void)
   MX_I2C3_Init();
   MX_TIM2_Init();
   MX_TIM10_Init();
+  MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -291,21 +288,16 @@ int main(void)
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
-  /* Create the queue(s) */
-  /* creation of stateQueue */
-  stateQueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &stateQueue_attributes);
-
-  /* creation of controlQueue */
-  controlQueueHandle = osMessageQueueNew (16, sizeof(uint16_t), &controlQueue_attributes);
-
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
-  sensorQueueHandle = osMessageQueueNew (16, sizeof(MPU6050_ConvertedData), &sensorQueue_attributes);
+  sensorQueueHandle = osMessageQueueNew (8, sizeof(MPU6050_ConvertedData), &sensorQueue_attributes);
+  uartQueueHandle = osMessageQueueNew(8, sizeof(Data_uart), &uartQueueQueue_attributes);
+
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of motorTask */
-  motorTaskHandle = osThreadNew(MotorTask, NULL, &motorTask_attributes);
+  /* creation of UartSendTask */
+  UartSendTaskHandle = osThreadNew(UartTask, NULL, &UartSendTask_attributes);
 
   /* creation of pidTask */
   pidTaskHandle = osThreadNew(PidTask, NULL, &pidTask_attributes);
@@ -661,6 +653,39 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
+  * @brief USART6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART6_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART6_Init 0 */
+
+  /* USER CODE END USART6_Init 0 */
+
+  /* USER CODE BEGIN USART6_Init 1 */
+
+  /* USER CODE END USART6_Init 1 */
+  huart6.Instance = USART6;
+  huart6.Init.BaudRate = 115200;
+  huart6.Init.WordLength = UART_WORDLENGTH_8B;
+  huart6.Init.StopBits = UART_STOPBITS_1;
+  huart6.Init.Parity = UART_PARITY_NONE;
+  huart6.Init.Mode = UART_MODE_TX_RX;
+  huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart6.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART6_Init 2 */
+
+  /* USER CODE END USART6_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -693,20 +718,30 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_MotorTask */
+/* USER CODE BEGIN Header_UartTask */
 /**
-  * @brief  Function implementing the motorTask thread.
+  * @brief  Function implementing the UartSendTask thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_MotorTask */
-void MotorTask(void *argument)
+char tx_buffer[20];
+/* USER CODE END Header_UartTask */
+void UartTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+  //Data_uart data;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(10);
+//	  if (osMessageQueueGet(uartQueueHandle, &data, NULL, osWaitForever) == osOK) {
+		  int len = snprintf(tx_buffer, sizeof(tx_buffer),
+							 "%.2f,%.2f\n",
+							 _roll_measured, _pitch_measured);
+		  if (len > 0 && len < sizeof(tx_buffer)) {
+			  HAL_UART_Transmit(&huart6, (uint8_t*)tx_buffer, len, 100);
+		  }
+		  osDelay(100); // delay để tránh gửi quá nhanh
+	  //}
   }
   /* USER CODE END 5 */
 }
@@ -722,11 +757,16 @@ void PidTask(void *argument)
 {
   /* USER CODE BEGIN PidTask */
   uint32_t flags;
+ 
   double motor1_output, motor2_output, motor3_output, motor4_output;
   uint8_t count = 0;
+
+  uint32_t tick;
+  tick = osKernelGetTickCount();
   /* Infinite loop */
   for(;;)
   {
+    tick += 10U; // Tăng tick lên 10ms
     flags = osEventFlagsWait(runpidEventHandle, FLAGS_PID, osFlagsWaitAny, osWaitForever);
     if(flags & FLAGS_PID){
       if (!(_status & 0x02)) {
@@ -772,6 +812,7 @@ void PidTask(void *argument)
         do_motor4(0);
       }
     }
+    osDelayUntil(tick); // Dợi đến tick tiếp theo
   }
 
   /* USER CODE END PidTask */
@@ -813,11 +854,10 @@ void SensorTask(void *argument)
   }
   uint32_t tick;
   tick = osKernelGetTickCount();
-  // HAL_Delay(1000);
   /* Infinite loop */
   for(;;){
     tick += 10U; // Tăng tick lên 10ms
-    // Đọc dữ liệu cảm biến mỗi 10ms
+    // Gửi dữ liệu cảm biến mỗi 10ms
     if (_status & 0x02) {
       MPU6050_RawData raw_data;
       MPU6050_ConvertedData conv_data;
@@ -828,7 +868,7 @@ void SensorTask(void *argument)
         }
       }
     }
-    osDelayUntil(tick); // Đợi cho đến khi tick >= 10ms
+    osDelayUntil(tick); //
   }
   /* USER CODE END SensorTask */
 }
@@ -844,40 +884,38 @@ void RCTask(void *argument)
 {
   /* USER CODE BEGIN RCTask */
   /* Infinite loop */
-  for(;;)
-  {
-      if(ibus_rx_cplt_flag == 1){
-          ibus_rx_cplt_flag = 0;
+  for(;;){
+    if(ibus_rx_cplt_flag == 1){
+      ibus_rx_cplt_flag = 0;
+      if(ibus_check_CS(&ibus_rx_buf[0], 32) == 1)
+      {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, 1);
+          HAL_Delay(100);
+        //	  				HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+          ibus_message(&ibus_rx_buf[0], &ibus);
 
-          if(ibus_check_CS(&ibus_rx_buf[0], 32) == 1)
+          if(ibus_active_failsafe(&ibus) == 1)
           {
-              HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, 1);
-              HAL_Delay(100);
-            //	  				HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-              ibus_message(&ibus_rx_buf[0], &ibus);
-
-              if(ibus_active_failsafe(&ibus) == 1)
-              {
-                HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
-                //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 1);
-              } 
-              else
-              {
-                HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
-                //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0);
-              }
-          }
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
+            //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 1);
+          } 
           else
           {
-              HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, 0);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
+            //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0);
           }
       }
-      _output_z = map_ibus_to_altitude(ibus.left_horizontal);
-  	  // TIM2 -> CCR1 = 1000 + (ibus.left_horizontal - 1000 + 15);
-  	  // TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-  	  // TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-  	  // TIM5 -> CCR4 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-    osDelay(30);
+      else
+      {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, 0);
+      }
+    }
+    _output_z = map_ibus_to_altitude(ibus.left_horizontal);
+    // TIM2 -> CCR1 = 1000 + (ibus.left_horizontal - 1000 + 15);
+    // TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+    // TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+    // TIM5 -> CCR4 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+    osDelay(10);
   }
   /* USER CODE END RCTask */
 }
@@ -902,7 +940,6 @@ void StateEstimatorTask(void *argument)
   Kalman_Init(&kf_pitch);
 
   float dt = 0.01f;
-  char uart_buffer[100];
   /* Infinite loop */
    for (;;) {
     if (osMessageQueueGet(sensorQueueHandle, &conv_data, NULL, osWaitForever) == osOK) {
@@ -923,17 +960,18 @@ void StateEstimatorTask(void *argument)
       //float r = conv_data.gyro_x * (M_PI / 180.0f) - gyro_x_bias;
 
         // Validate inputs
-        if (!isnan(roll) && !isnan(pitch) &&
-            !isnan(p) && !isnan(q)) {
-            _roll_measured = Kalman_Update(&kf_roll, roll , p , dt) * RAD_TO_DEG;
-            _pitch_measured = Kalman_Update(&kf_pitch, pitch, q , dt) * RAD_TO_DEG;
-            send_sensor_data(_roll_measured, _pitch_measured);
-        } else {
-            _status |= 0x10; // Bit 4: Invalid sensor data
-        }
-        osEventFlagsSet(runpidEventHandle, FLAGS_PID);
+      if (!isnan(roll) && !isnan(pitch) && !isnan(p) && !isnan(q)) {
+        _roll_measured = Kalman_Update(&kf_roll, roll , p , dt) * RAD_TO_DEG;
+        _pitch_measured = Kalman_Update(&kf_pitch, pitch, q , dt) * RAD_TO_DEG;
+//        Data_uart data = {_roll_measured, _pitch_measured };
+//        osMessageQueuePut(uartQueueHandle, &data, 0, 0);
+      } 
+      else {
+        _status |= 0x10; // Bit 4: Invalid sensor data
+      }
+      osEventFlagsSet(runpidEventHandle, FLAGS_PID);
     }
-       //osDelay(10); // 100Hz
+    osDelay(5); // 50Hz
   }
   /* USER CODE END StateEstimatorTask */
 }
