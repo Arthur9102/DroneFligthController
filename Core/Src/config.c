@@ -140,11 +140,26 @@ void Calib_gyro(){
       gyro_y_bias = (float)(gyro_y_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
       gyro_z_bias = (float)(gyro_z_sum / samples) * (1.0f / 16.4f) * M_PI / 180.0f;
 }
-
-void do_motor3(int16_t t) { TIM5->CCR2 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor
-void do_motor4(int16_t t) { TIM2->CCR1 = 1000 + 0.85*CONSTRAIN(t, 0, 1000); } //limit 85% motor
-void do_motor2(int16_t t) { TIM5->CCR3 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
-void do_motor1(int16_t t) { TIM5->CCR4 = 6250 + 0.85*CONSTRAIN(t, 0, 1000) * 6.25; } //limit 85% motor 
+extern uint16_t _throttle_1 ;
+extern uint16_t _throttle_2 ;
+extern uint16_t _throttle_3 ;
+extern uint16_t _throttle_4 ;
+void do_motor3(int16_t t) { 
+    TIM5->CCR2 = 6250 + CONSTRAIN(t, 0, 1000) * 6.25; 
+    _throttle_3 = TIM5->CCR2;
+} //limit 85% motor
+void do_motor1(int16_t t) { 
+    TIM5->CCR1 = 7850 + CONSTRAIN(t, 0, 1000) * 4.65;
+    _throttle_1 = TIM5->CCR1;
+} //limit 85% motor
+void do_motor2(int16_t t) { 
+    TIM5->CCR3 = 6250 + CONSTRAIN(t, 0, 1000) * 6.25; 
+    _throttle_2 = TIM5->CCR3;
+} //limit 85% motor
+void do_motor4(int16_t t) { 
+    TIM5->CCR4 = 6250 + CONSTRAIN(t, 0, 1000) * 6.25; 
+    _throttle_4 = TIM5->CCR4;
+} //limit 85% motor
 
 /* Function to estimate yaw using complementary filter */
 float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, float *yaw_state) {
@@ -170,11 +185,11 @@ float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, f
     return *yaw_state;
 }
 
-#define MAX_INPUT_RANGE 250.0
+#define MAX_INPUT_RANGE 500.0
 #define NORM_FACTOR (1.0/MAX_INPUT_RANGE)
 
 // Hàm áp dụng expo mapping
-double apply_expo(double input, double expo_factor) {
+double apply_expo(float input, float expo_factor) {
     if (expo_factor == 1.0) return input;  // Linear case
     if (input == 0.0) return 0.0;  // Optimization
 
@@ -189,7 +204,7 @@ double apply_expo(double input, double expo_factor) {
 }
 
 // Hàm áp dụng deadband
-double apply_deadband(double input, double deadband) {
+float apply_deadband(float input, float deadband) {
     if (ABS(input) < deadband) {
         return 0.0;
     } else {
@@ -199,10 +214,10 @@ double apply_deadband(double input, double deadband) {
 }
 
 // Hàm áp dụng slew rate limiting
-double apply_slew_rate(double target, double current, double max_rate) {
-    if (max_rate <= 0.0) return current;  // Invalid rate protection
-    
-    double delta = target - current;
+float apply_slew_rate(float target, float current, float max_rate) {
+    if (max_rate <= 0.0f) return current;  // Invalid rate protection
+
+    float delta = target - current;
     if (fabs(delta) <= max_rate) return target;
     
     return current + (delta > 0.0 ? max_rate : -max_rate);
@@ -210,7 +225,7 @@ double apply_slew_rate(double target, double current, double max_rate) {
 
 #define MOTOR_MIN_OUTPUT 0.0
 #define MOTOR_MAX_OUTPUT 1000.0
-#define MIXING_SCALE 0.5f    // Scale factor for roll/pitch/yaw mixing
+#define MIXING_SCALE 1.0f    // Scale factor for roll/pitch/yaw mixing
 
 /**
  * @brief Calculate motor outputs based on control inputs
@@ -223,37 +238,37 @@ double apply_slew_rate(double target, double current, double max_rate) {
  * @param motor3 Pointer to motor3 output (Back Right)
  * @param motor4 Pointer to motor4 output (Back Left)
  */
-void calculate_motor_outputs(double z_output, double roll_output, double pitch_output, double yaw_output,
-                           double *motor1, double *motor2, double *motor3, double *motor4) {
+void calculate_motor_outputs(float z_output, float roll_output, float pitch_output, float yaw_output,
+                           float *motor1, float *motor2, float *motor3, float *motor4) {
     // Input validation
     if (!motor1 || !motor2 || !motor3 || !motor4) {
         return;
     }
 
     // Apply expo curves with mixing scale
-    double expo_roll = apply_expo(roll_output, EXPO_ROLL) * MIXING_SCALE;
-    double expo_pitch = apply_expo(pitch_output, EXPO_PITCH) * MIXING_SCALE;
-    double expo_yaw = apply_expo(yaw_output, EXPO_YAW) * MIXING_SCALE;
+    float expo_roll = apply_expo(roll_output, EXPO_ROLL) * MIXING_SCALE;
+    float expo_pitch = apply_expo(pitch_output, EXPO_PITCH) * MIXING_SCALE;
+    float expo_yaw = 0;
 
     // Calculate base motor outputs
-    double throttle_1 = z_output + expo_roll - expo_pitch + expo_yaw;  // Front Right
-    double throttle_2 = z_output - expo_roll + expo_pitch + expo_yaw;  // Front Left
-    double throttle_3 = z_output - expo_roll - expo_pitch - expo_yaw;  // Back Right
-    double throttle_4 = z_output + expo_roll + expo_pitch - expo_yaw;  // Back Left
+    float throttle_1 = z_output - expo_roll + expo_pitch + expo_yaw;  // Front Right
+    float throttle_2 = z_output + expo_roll - expo_pitch + expo_yaw;  // Front Left
+    float throttle_3 = z_output + expo_roll + expo_pitch - expo_yaw;  // Back Right
+    float throttle_4 = z_output - expo_roll - expo_pitch - expo_yaw;  // Back Left
 
-    // Find maximum output for scaling
-    double max_output = throttle_1;
-    max_output = (throttle_2 > max_output) ? throttle_2 : max_output;
-    max_output = (throttle_3 > max_output) ? throttle_3 : max_output;
-    max_output = (throttle_4 > max_output) ? throttle_4 : max_output;
+//    // Find maximum output for scaling
+   float max_output = throttle_1;
+   max_output = (throttle_2 > max_output) ? throttle_2 : max_output;
+   max_output = (throttle_3 > max_output) ? throttle_3 : max_output;
+   max_output = (throttle_4 > max_output) ? throttle_4 : max_output;
 
-    // Scale outputs if necessary
-    if (max_output > MOTOR_MAX_OUTPUT) {
-        double scale = MOTOR_MAX_OUTPUT / max_output;
-        throttle_1 *= scale;
-        throttle_2 *= scale;
-        throttle_3 *= scale;
-        throttle_4 *= scale;
+   // Scale outputs if necessary
+   if (max_output > MOTOR_MAX_OUTPUT) {
+       float scale = MOTOR_MAX_OUTPUT / max_output;
+       throttle_1 *= scale;
+       throttle_2 *= scale;
+       throttle_3 *= scale;
+       throttle_4 *= scale;
     }
 
     // Apply slew rate limiting

@@ -68,8 +68,8 @@ void do_motor4(int16_t t);
 float estimate_yaw_complementary(float gyro_yaw_rate, float mag_yaw, float dt, float *yaw_state);
 
 
-void calculate_motor_outputs(double z_output, double roll_output, double pitch_output, double yaw_output,
-                           double *motor1, double *motor2, double *motor3, double *motor4);
+void calculate_motor_outputs(float z_output, float roll_output, float pitch_output, float yaw_output,
+                           float *motor1, float *motor2, float *motor3, float *motor4);
 
 
 
