@@ -5,6 +5,7 @@
   * @brief          : PID Autotuning using Genetic Algorithm for STM32
   ******************************************************************************
   * @attention
+  * @author  Ho Quang Dung
   * Implementation of PID autotuning based on Tsounis' thesis.
   * Uses Genetic Algorithm to tune Kp and Ki for a PI controller.
   * Simulates pitch dynamics and outputs results via UART.
@@ -18,7 +19,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <main.h>
+#include "main.h"
+#include <stdint.h>
+#include "cmsis_os.h"
+
 /* External variables */
 extern UART_HandleTypeDef huart6;  // UART handle for debug output
 extern float _roll_setpoint;       // Roll setpoint in radians 
@@ -29,17 +33,41 @@ extern float _output_roll;         // Roll control output
 // PID controller structures
 extern CascadedPID_t _pid_roll_cascade;   // Roll axis cascaded PID
 extern CascadedPID_t _pid_pitch_cascade;  // Pitch axis cascaded PID
-
+extern float angle_kp, angle_kd;
+extern float rate_kp, rate_kd;
 Individual population[POP_SIZE];
 Individual new_population[POP_SIZE];
 char uart_buf[100];
 
-/* Generate random float between min and max */
-float rand_float(float min, float max) {
-    return min + ((float)rand() / RAND_MAX) * (max - min);
+uint32_t get_random(void)
+{
+    static uint32_t seed = 0;
+    static uint32_t prev = 0;
+    
+    // Combine multiple entropy sources
+    seed ^= xTaskGetTickCount();              // RTOS ticks
+    seed ^= HAL_GetTick();                    // System ticks
+    seed ^= (uint32_t)__get_PSP();           // Process stack pointer
+    seed ^= prev;                             // Previous random value
+    
+    // Use better multiplier and increment values from Numerical Recipes
+    seed = (seed * 1664525U + 1013904223U) & 0x7FFFFFFFU;
+    
+    // Additional mixing using XORshift
+    seed ^= (seed << 13);
+    seed ^= (seed >> 17);
+    seed ^= (seed << 5);
+    
+    prev = seed; // Save for next iteration
+    return seed;
 }
 
-/* Initialize population with random Kp, Ki */
+/* Generate random float between min and max */
+float rand_float(float min, float max) {
+    return min + ((float)get_random() / 0x7fffffff) * (max - min);
+}
+
+/* Initialize population with random Kp, Kd */
 void init_population(void) {
     for (int i = 0; i < POP_SIZE; i++) {
         population[i].Kp = rand_float(KP_MIN, KP_MAX);
@@ -110,11 +138,11 @@ float calculate_fitness(float *output, int steps) {
 
 /* Select parents using tournament selection */
 void select_parents(int *parent1, int *parent2) {
-    int best1 = rand() % POP_SIZE, best2 = rand() % POP_SIZE;
+    int best1 = get_random() % POP_SIZE, best2 = get_random() % POP_SIZE;
     for (int i = 0; i < 3; i++) {
-        int idx = rand() % POP_SIZE;
+        int idx = get_random() % POP_SIZE;
         if (population[idx].fitness > population[best1].fitness) best1 = idx;
-        idx = rand() % POP_SIZE;
+        idx = get_random() % POP_SIZE;
         if (population[idx].fitness > population[best2].fitness) best2 = idx;
     }
     *parent1 = best1;
@@ -154,7 +182,7 @@ void mutate(Individual *ind) {
 /* Main autotuning function */
 void autotune_pid(float *Kp, float *Kd) {
     const int MAX_SAMPLES = 500;  // 5 giây @ 10ms/mẫu
-    const int STAGNATION_LIMIT = 5;  // Số thế hệ tối đa không cải thiện
+    const int STAGNATION_LIMIT = 10;  // Số thế hệ tối đa không cải thiện
     TestData *test_data = malloc(sizeof(TestData) * MAX_SAMPLES);
     
     if (test_data == NULL) {
@@ -168,8 +196,8 @@ void autotune_pid(float *Kp, float *Kd) {
     int best_generation = 0;
     
     char buf[50];
-    sprintf(buf, "Starting autotuning...\r\n");
-    HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
+    // sprintf(buf, "Starting autotuning...\r\n");
+    // HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
 
     for (int gen = 0; gen < MAX_GENERATIONS; gen++) {
         // Đánh giá từng cá thể
@@ -196,22 +224,22 @@ void autotune_pid(float *Kp, float *Kd) {
             stagnation_counter = 0;  // Reset counter
             
             // Thông báo cải thiện
-            sprintf(buf, "Gen %d: New best fitness: %.4f\r\n", 
-                    gen + 1, best_fitness_ever);
-            HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
+            // sprintf(buf, "Gen %d: New best fitness: %.4f\r\n", 
+            //         gen + 1, best_fitness_ever);
+            // HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
         } else {
             stagnation_counter++;
             
             // Thông báo không cải thiện
-            sprintf(buf, "Gen %d: No improvement, count: %d\r\n", 
-                    gen + 1, stagnation_counter);
-            HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
+            // sprintf(buf, "Gen %d: No improvement, count: %d\r\n", 
+            //         gen + 1, stagnation_counter);
+            // HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
         }
 
         // Kiểm tra điều kiện dừng sớm
         if (stagnation_counter >= STAGNATION_LIMIT) {
-            sprintf(buf, "Early stopping at generation %d\r\n", gen + 1);
-            HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
+            // sprintf(buf, "Early stopping at generation %d\r\n", gen + 1);
+            // HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
             break;
         }
 
@@ -242,9 +270,9 @@ void autotune_pid(float *Kp, float *Kd) {
     *Kd = population[best_idx].Kd;
 
     // Gửi kết quả cuối cùng
-    sprintf(buf, "Best PID: Kp=%.3f Kd=%.3f (Gen %d)\r\n", 
-            *Kp, *Kd, best_generation + 1);
-    HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
+    // sprintf(buf, "Best PID: Kp=%.3f Kd=%.3f (Gen %d)\r\n", 
+    //         *Kp, *Kd, best_generation + 1);
+    // HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
 
     free(test_data);
 }
@@ -254,24 +282,23 @@ float evaluate_controller(float Kp, float Kd, TestData* data, int max_samples) {
     float error_integral = 0.0f;
 //    float prev_output = 0.0f;
     int sample_count = 0;
+    // Đặt lại các biến điều khiển
     uint32_t start_time = HAL_GetTick();
-    
+
     // Reset các biến trạng thái
     _roll_setpoint = 0.0f;
     _pitch_setpoint = 0.0f;
     error_integral = 0.0f;
 
     // Create local variables to store the PID parameters
-    float roll_rate_kp = Kp;
-    float roll_rate_kd = Kd;
-    float pitch_rate_kp = Kp;
-    float pitch_rate_kd = Kd;
+    rate_kp = Kp;
+    rate_kd = Kd;
 
     // Đặt các hệ số PID mới
-    _pid_roll_cascade.rate.kp = &roll_rate_kp;
-    _pid_roll_cascade.rate.kd = &roll_rate_kd;
-    _pid_pitch_cascade.rate.kp = &pitch_rate_kp;
-    _pid_pitch_cascade.rate.kd = &pitch_rate_kd;
+    // _pid_roll_cascade.rate.kp = &roll_rate_kp;
+    // _pid_roll_cascade.rate.kd = &roll_rate_kd;
+    // _pid_pitch_cascade.rate.kp = &pitch_rate_kp;
+    // _pid_pitch_cascade.rate.kd = &pitch_rate_kd;
 
     // Chờ hệ thống ổn định
     HAL_Delay(1000);

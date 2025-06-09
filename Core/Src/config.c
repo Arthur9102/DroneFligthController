@@ -32,13 +32,13 @@ uint8_t _flag = 0;
 extern float gyro_x_bias,gyro_y_bias,gyro_z_bias;
 
 // Các cấu hình cho expo mapping
-#define EXPO_ROLL 0.7            // Hệ số expo cho roll
-#define EXPO_PITCH 0.7           // Hệ số expo cho pitch
+#define EXPO_ROLL 1       // Hệ số expo cho roll
+#define EXPO_PITCH 1       // Hệ số expo cho pitch
 #define EXPO_YAW 0.6             // Hệ số expo cho yaw
 #define EXPO_ALTITUDE 1.0        // Giữ tuyến tính cho độ cao
 
 // Các cấu hình slew rate
-#define SLEW_RATE_MAX 20.0      // Tốc độ thay đổi tối đa của đầu ra (đơn vị/chu kỳ)
+#define SLEW_RATE_MAX 100.0      // Tốc độ thay đổi tối đa của đầu ra (đơn vị/chu kỳ)
 
 // Các biến lưu giá trị đầu ra trước đó cho slew rate limiting
 static double prev_motor1_output = 0.0;
@@ -145,19 +145,19 @@ extern uint16_t _throttle_2 ;
 extern uint16_t _throttle_3 ;
 extern uint16_t _throttle_4 ;
 void do_motor3(int16_t t) { 
-    TIM5->CCR2 = 6250 + CONSTRAIN(t, 0, 1000) * 6.25; 
+    TIM5->CCR2 = 1100 + CONSTRAIN(t,0,1000) * 2.02;
     _throttle_3 = TIM5->CCR2;
 } //limit 85% motor
 void do_motor1(int16_t t) { 
-    TIM5->CCR1 = 7850 + CONSTRAIN(t, 0, 1000) * 4.65;
+    TIM5->CCR1 = 1100 + CONSTRAIN(t, 0, 1000) * 2.02;
     _throttle_1 = TIM5->CCR1;
 } //limit 85% motor
 void do_motor2(int16_t t) { 
-    TIM5->CCR3 = 6250 + CONSTRAIN(t, 0, 1000) * 6.25; 
+    TIM5->CCR3 = 1100 + CONSTRAIN(t, 0, 1000) * 2.02; 
     _throttle_2 = TIM5->CCR3;
 } //limit 85% motor
 void do_motor4(int16_t t) { 
-    TIM5->CCR4 = 6250 + CONSTRAIN(t, 0, 1000) * 6.25; 
+    TIM5->CCR4 = 1100 + CONSTRAIN(t, 0, 1000) * 2.02; 
     _throttle_4 = TIM5->CCR4;
 } //limit 85% motor
 
@@ -245,43 +245,43 @@ void calculate_motor_outputs(float z_output, float roll_output, float pitch_outp
         return;
     }
 
-    // Apply expo curves with mixing scale
-    float expo_roll = apply_expo(roll_output, EXPO_ROLL) * MIXING_SCALE;
-    float expo_pitch = apply_expo(pitch_output, EXPO_PITCH) * MIXING_SCALE;
-    float expo_yaw = 0;
+    // // Apply expo curves with mixing scale
+    // float expo_roll = apply_expo(roll_output, EXPO_ROLL) * MIXING_SCALE;
+    // float expo_pitch = apply_expo(pitch_output, EXPO_PITCH) * MIXING_SCALE;
+    // float expo_yaw = 0;
 
     // Calculate base motor outputs
-    float throttle_1 = z_output - expo_roll + expo_pitch + expo_yaw;  // Front Right
-    float throttle_2 = z_output + expo_roll - expo_pitch + expo_yaw;  // Front Left
-    float throttle_3 = z_output + expo_roll + expo_pitch - expo_yaw;  // Back Right
-    float throttle_4 = z_output - expo_roll - expo_pitch - expo_yaw;  // Back Left
+    float throttle_1 = z_output - roll_output + pitch_output + yaw_output;  // Front Right
+    float throttle_2 = z_output + roll_output - pitch_output + yaw_output;  // Front Left
+    float throttle_3 = z_output + roll_output + pitch_output - yaw_output;  // Back Right
+    float throttle_4 = z_output - roll_output - pitch_output - yaw_output;  // Back Left
 
 //    // Find maximum output for scaling
-   float max_output = throttle_1;
-   max_output = (throttle_2 > max_output) ? throttle_2 : max_output;
-   max_output = (throttle_3 > max_output) ? throttle_3 : max_output;
-   max_output = (throttle_4 > max_output) ? throttle_4 : max_output;
+//    float max_output = throttle_1;
+//    max_output = (throttle_2 > max_output) ? throttle_2 : max_output;
+//    max_output = (throttle_3 > max_output) ? throttle_3 : max_output;
+//    max_output = (throttle_4 > max_output) ? throttle_4 : max_output;
 
-   // Scale outputs if necessary
-   if (max_output > MOTOR_MAX_OUTPUT) {
-       float scale = MOTOR_MAX_OUTPUT / max_output;
-       throttle_1 *= scale;
-       throttle_2 *= scale;
-       throttle_3 *= scale;
-       throttle_4 *= scale;
-    }
+//    // Scale outputs if necessary
+//    if (max_output > MOTOR_MAX_OUTPUT) {
+//        float scale = MOTOR_MAX_OUTPUT / max_output;
+//        throttle_1 *= scale;
+//        throttle_2 *= scale;
+//        throttle_3 *= scale;
+//        throttle_4 *= scale;
+//     }
 
     // Apply slew rate limiting
-    *motor1 = apply_slew_rate(throttle_1, prev_motor1_output, SLEW_RATE_MAX);
-    *motor2 = apply_slew_rate(throttle_2, prev_motor2_output, SLEW_RATE_MAX);
-    *motor3 = apply_slew_rate(throttle_3, prev_motor3_output, SLEW_RATE_MAX);
-    *motor4 = apply_slew_rate(throttle_4, prev_motor4_output, SLEW_RATE_MAX);
+    *motor1 = throttle_1;
+    *motor2 = throttle_2;
+    *motor3 = throttle_3;
+    *motor4 = throttle_4;
 
     // Update previous values
-    prev_motor1_output = *motor1;
-    prev_motor2_output = *motor2;
-    prev_motor3_output = *motor3;
-    prev_motor4_output = *motor4;
+    // prev_motor1_output = *motor1;
+    // prev_motor2_output = *motor2;
+    // prev_motor3_output = *motor3;
+    // prev_motor4_output = *motor4;
 }
 
 

@@ -1,9 +1,9 @@
-#ifndef __AUTOTUNE_H
-#define __AUTOTUNE_H
+#ifndef AUTOTUNE_H_
+#define AUTOTUNE_H_
 
 #include "pid.h"
 #include "config.h"
-
+// #include "main.h"
 typedef struct {
     float Kp;
     float Kd;
@@ -18,6 +18,10 @@ typedef struct {
     float control;     // Tín hiệu điều khiển
     uint32_t time;     // Thời điểm (ms)
 } TestData;
+typedef enum{
+    TUNE,
+    NO_TUNE
+}State_Tune;
 
 /* USER CODE END PTD */
 
@@ -35,7 +39,7 @@ typedef struct {
 #define KI_MAX 10.0f
 #define DT 0.01f          // Discrete time step (10ms)
 #define SIM_TIME 5.0f     // Simulation time (5s)
-#define SETPOINT 1.0f     // Step response setpoint (1 radian)
+#define SETPOINT 0.0f     // Step response setpoint (0 radian)
 
 
 /* USER CODE BEGIN PFP */

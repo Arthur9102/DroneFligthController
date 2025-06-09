@@ -15,19 +15,19 @@
   */
  void Kalman_Init(Kalman_t *kalman) {
      /* Set process and measurement noise parameters */
-     kalman->Q_angle = 0.001f;    // Process noise variance for angle
-     kalman->Q_bias = 0.003f;     // Process noise variance for bias
-     kalman->R_measure = 0.03f;   // Measurement noise variance
+     kalman->Q_angle = 0.002f;    // Process noise variance for angle
+     kalman->Q_bias = 0.005f;     // Process noise variance for bias
+     kalman->R_measure = 0.2f;   // Measurement noise variance
      
      /* Initialize state variables */
      kalman->angle = 0.0f;        // Initial angle estimate
      kalman->bias = 0.0f;         // Initial bias estimate
      
      /* Initialize error covariance matrix */
-     kalman->P[0][0] = 10.0f;  // Higher initial angle uncertainty
+     kalman->P[0][0] = 1.0f;  // Higher initial angle uncertainty
      kalman->P[0][1] = 0.0f;
      kalman->P[1][0] = 0.0f;
-     kalman->P[1][1] = 10.0f;  // Higher initial bias uncertainty
+     kalman->P[1][1] = 1.0f;  // Higher initial bias uncertainty
  }
  
  /**

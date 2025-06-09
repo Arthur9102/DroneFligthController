@@ -52,6 +52,7 @@
 #include "kalman.h"
 #include "FS_IA10B.h"
 #include "autotune.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -71,7 +72,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
-I2C_HandleTypeDef hi2c3;
+I2C_HandleTypeDef hi2c2;
 
 UART_HandleTypeDef huart6;
 
@@ -117,6 +118,11 @@ const osThreadAttr_t autotuneTask_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for myQueue01 */
+osMessageQueueId_t myQueue01Handle;
+const osMessageQueueAttr_t myQueue01_attributes = {
+  .name = "myQueue01"
+};
 /* Definitions for runpidEvent */
 osEventFlagsId_t runpidEventHandle;
 const osEventFlagsAttr_t runpidEvent_attributes = {
@@ -124,19 +130,20 @@ const osEventFlagsAttr_t runpidEvent_attributes = {
 };
 /* USER CODE BEGIN PV */
 /*========================= PID Parameter define ================================*/
-float angle_kp = 2, angle_ki = 0.0, angle_kd = 0.0;
-float rate_kp = 0.6, rate_ki = 0.01, rate_kd = 0.03;
+float angle_kp = 1.5f, angle_ki = 0.0f, angle_kd = 0.0f;
+float rate_kp = 0.6f, rate_ki = 1.3f, rate_kd = 2.0f;
+float _desired_rate = 50.0f;
 // double _kp_z = 1.4;
 // double _ki_z = 0.2;
 // double _kd_z = 0.75;
 // double _kp_yaw = 1;
 // double _ki_yaw = 0.02;
 // double _kd_yaw =0;
-float _roll_setpoint = 0;
-float _pitch_setpoint = 0;
+float _roll_setpoint = -2.5;
+float _pitch_setpoint = -0.7;
 // float _yaw_set = 0;
 // float _z_set = 100;  //cm
-float _output_roll,_output_pitch,_output_yaw,_output_z;
+float _output_roll,_output_pitch, _output_yaw = 0.0f ,_output_z = 0.0f;
 float _roll_measured;
 float _pitch_measured;
 // float _yaw_measured;
@@ -148,6 +155,7 @@ float _pitch_measured;
 CascadedPID_t _pid_roll_cascade;
 CascadedPID_t _pid_pitch_cascade;
 float _roll_rate_measured, _pitch_rate_measured;
+State_Tune _flag_tune = NO_TUNE;
 /*========================= RC Pareameter define ================================*/
 extern uint8_t usart2_rx_data;
 extern uint8_t usart2_rx_flag;
@@ -165,8 +173,8 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM5_Init(void);
-static void MX_I2C3_Init(void);
 static void MX_USART6_UART_Init(void);
+static void MX_I2C2_Init(void);
 void UartTask(void *argument);
 void PidTask(void *argument);
 void SensorTask(void *argument);
@@ -208,7 +216,9 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+
+
+	HAL_Init();
 
   /* USER CODE BEGIN Init */
   // PID_INIT(&_pid_roll,&_roll_set,&_output_roll, &_roll_measured,
@@ -219,7 +229,7 @@ int main(void)
   CascadedPID_Init(&_pid_roll_cascade,
                     &_roll_setpoint, &_roll_measured,
                     &_roll_rate_measured, &_output_roll,
-                    10.0,  // 10ms sample time
+                    4.0f,  // 4ms sample time
                     &angle_kp, &angle_ki, &angle_kd,    // Angle PID gains (conservative P controller)
                     &rate_kp, &rate_ki, &rate_kd);  // Rate PID gains (existing values)
 
@@ -227,7 +237,7 @@ int main(void)
   CascadedPID_Init(&_pid_pitch_cascade,
                     &_pitch_setpoint, &_pitch_measured,
                     &_pitch_rate_measured, &_output_pitch,
-                    10.0,  // 10ms sample time
+                    4.0f,  // 4ms sample time
                     &angle_kp, &angle_ki, &angle_kd,    // Angle PID gains
                     &rate_kp, &rate_ki, &rate_kd);  // Rate PID gains
   // PID_INIT(&_pid_z,&_z_set,&_output_z, &_altitude,
@@ -248,14 +258,12 @@ int main(void)
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   MX_TIM5_Init();
-  MX_I2C3_Init();
   MX_USART6_UART_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
-
 
   LL_USART_EnableIT_RXNE(USART1);
   LL_USART_EnableIT_RXNE(USART2);
-
 
   LL_TIM_EnableCounter(TIM5);
   LL_TIM_CC_EnableChannel(TIM5, LL_TIM_CHANNEL_CH1);
@@ -266,19 +274,19 @@ int main(void)
   LL_TIM_EnableCounter(TIM2);
   LL_TIM_CC_EnableChannel(TIM2, LL_TIM_CHANNEL_CH1);
   // ESC Calibration
-// TIM5 -> CCR1 = 12500;
-// TIM5 -> CCR2 = 12500;
-// TIM5 -> CCR3 = 12500;
-// TIM5 -> CCR4 = 12500;
-//
-// HAL_Delay(7000);
-//
-// TIM5 -> CCR1 = 7850;
-// TIM5 -> CCR2 = 6250;
-// TIM5 -> CCR3 = 6250;
-// TIM5 -> CCR4 = 6250;
-//
-// HAL_Delay(8000);
+//  TIM5 -> CCR1 = 3120;
+//  TIM5 -> CCR2 = 3120;
+//  TIM5 -> CCR3 = 3120;
+//  TIM5 -> CCR4 = 3120;
+
+//  HAL_Delay(7000);
+
+//  TIM5 -> CCR1 = 1100;
+//  TIM5 -> CCR2 = 1100;
+//  TIM5 -> CCR3 = 1100;
+//  TIM5 -> CCR4 = 1100;
+
+//  HAL_Delay(8000);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -295,6 +303,10 @@ int main(void)
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
+
+  /* Create the queue(s) */
+  /* creation of myQueue01 */
+  myQueue01Handle = osMessageQueueNew (16, sizeof(uint16_t), &myQueue01_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -367,13 +379,12 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 64;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 25;
+  RCC_OscInitStruct.PLL.PLLN = 168;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -386,11 +397,11 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV8;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -431,36 +442,36 @@ static void MX_I2C1_Init(void)
 }
 
 /**
-  * @brief I2C3 Initialization Function
+  * @brief I2C2 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_I2C3_Init(void)
+static void MX_I2C2_Init(void)
 {
 
-  /* USER CODE BEGIN I2C3_Init 0 */
+  /* USER CODE BEGIN I2C2_Init 0 */
 
-  /* USER CODE END I2C3_Init 0 */
+  /* USER CODE END I2C2_Init 0 */
 
-  /* USER CODE BEGIN I2C3_Init 1 */
+  /* USER CODE BEGIN I2C2_Init 1 */
 
-  /* USER CODE END I2C3_Init 1 */
-  hi2c3.Instance = I2C3;
-  hi2c3.Init.ClockSpeed = 100000;
-  hi2c3.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c3.Init.OwnAddress1 = 0;
-  hi2c3.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c3.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c3.Init.OwnAddress2 = 0;
-  hi2c3.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c3.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c3) != HAL_OK)
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.ClockSpeed = 100000;
+  hi2c2.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN I2C3_Init 2 */
+  /* USER CODE BEGIN I2C2_Init 2 */
 
-  /* USER CODE END I2C3_Init 2 */
+  /* USER CODE END I2C2_Init 2 */
 
 }
 
@@ -487,9 +498,9 @@ static void MX_TIM5_Init(void)
   /* USER CODE BEGIN TIM5_Init 1 */
 
   /* USER CODE END TIM5_Init 1 */
-  TIM_InitStruct.Prescaler = 0;
+  TIM_InitStruct.Prescaler = 83;
   TIM_InitStruct.CounterMode = LL_TIM_COUNTERMODE_UP;
-  TIM_InitStruct.Autoreload = 24999;
+  TIM_InitStruct.Autoreload = 3124;
   TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
   LL_TIM_Init(TIM5, &TIM_InitStruct);
   LL_TIM_EnableARRPreload(TIM5);
@@ -632,6 +643,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -643,14 +655,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF1_TIM2;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -681,14 +685,15 @@ void UartTask(void *argument)
   for(;;)
   {
 //	  if (osMessageQueueGet(uartQueueHandle, &data, NULL, osWaitForever) == osOK) {
-		  int len = snprintf(tx_buffer, sizeof(tx_buffer),
-							 "%.2f,%.2f,%d,%d,%d,%d\n",
-							 _roll_measured, _pitch_measured, _throttle_1, _throttle_2, _throttle_3, _throttle_4);
-		  if (len > 0 && len < sizeof(tx_buffer)) {
-			  HAL_UART_Transmit(&huart6, (uint8_t*)tx_buffer, len, 100);
-		  }
-		  osDelay(100); // delay để tránh gửi quá nhanh
-	  //}
+        // int len = snprintf(tx_buffer, sizeof(tx_buffer),
+        //   "%.2f,%.2f,%d,%d,%d,%d,%f,%f,%f\n",
+        //   _roll_measured, _pitch_measured, _throttle_1, _throttle_2, _throttle_3, _throttle_4,
+        //   rate_kp, rate_ki, rate_kd); 
+        // if (len > 0 && len < sizeof(tx_buffer)) {
+			  //   HAL_UART_Transmit(&huart6, (uint8_t*)tx_buffer, len, 100);
+        // }
+	    
+      osDelay(100); // delay để tránh gửi quá nhanh
   }
   /* USER CODE END 5 */
 }
@@ -711,10 +716,10 @@ void PidTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    tick += 10U; // Tăng tick lên 10ms
-    //flags = osEventFlagsWait(runpidEventHandle, FLAGS_PID, osFlagsWaitAny, osWaitForever);
-    // if(flags & FLAGS_PID){
-      if (!(_status & 0x02)) {
+    tick += 4U; // Tăng tick lên 4ms
+  //  flags = osEventFlagsWait(runpidEventHandle, FLAGS_PID, osFlagsWaitAny, osWaitForever);
+  //  if(flags & FLAGS_PID){
+      if (!(_status & 0x02)) {  // Kiểm tra xem MPU6050 có hoạt động không
         // Nếu MPU6050 không hoạt động, không thực hiện PID
         do_motor1(0);
         do_motor2(0);
@@ -726,21 +731,25 @@ void PidTask(void *argument)
       if(_output_z > 0){
         count++;
         if(count >= 10){
-          CascadedPID_Update(&_pid_roll_cascade);
+           // VD: tốc độ góc mong muốn 10 độ/s
+          CascadedPID_SetRateSetpoint(&_pid_pitch_cascade, _desired_rate);
+
+          // Gọi update PID bình thường, chỉ vòng trong chạy
           CascadedPID_Update(&_pid_pitch_cascade);
+          // CascadedPID_Update(&_pid_pitch_cascade);
 
           // Tính toán đầu ra động cơ với các cải tiến
-          calculate_motor_outputs(_output_z, _output_roll, _output_pitch, 0,
-                                &motor1_output, &motor2_output, &motor3_output, &motor4_output);
-                      // Chuyển đổi sang int16_t để tương thích với các hàm do_motorX
-          int16_t throttle_1 = (int16_t)(motor1_output);
-          int16_t throttle_2 = (int16_t)(motor2_output);
-          int16_t throttle_3 = (int16_t)(motor3_output);
-          int16_t throttle_4 = (int16_t)(motor4_output);
-          // int16_t throttle_1 = (int16_t)(_output_z - _output_roll + _output_pitch + _output_yaw);
-          // int16_t throttle_2 = (int16_t)(_output_z + _output_roll - _output_pitch + _output_yaw);
-          // int16_t throttle_3 = (int16_t)(_output_z + _output_roll + _output_pitch - _output_yaw);
-          // int16_t throttle_4 = (int16_t)(_output_z - _output_roll - _output_pitch - _output_yaw);
+          // calculate_motor_outputs(_output_z, _output_roll, _output_pitch, 0,
+          //                       &motor1_output, &motor2_output, &motor3_output, &motor4_output);
+          //             // Chuyển đổi sang int16_t để tương thích với các hàm do_motorX
+          // int16_t throttle_1 = (int16_t)(motor1_output);
+          // int16_t throttle_2 = (int16_t)(motor2_output);
+          // int16_t throttle_3 = (int16_t)(motor3_output);   
+          // int16_t throttle_4 = (int16_t)(motor4_output);
+          int16_t throttle_1 = (int16_t)(_output_z - _output_roll + _output_pitch + _output_yaw);
+          int16_t throttle_2 = (int16_t)(_output_z + _output_roll - _output_pitch + _output_yaw);
+          int16_t throttle_3 = (int16_t)(_output_z + _output_roll + _output_pitch - _output_yaw);
+          int16_t throttle_4 = (int16_t)(_output_z - _output_roll - _output_pitch - _output_yaw);
           do_motor1(throttle_1);
           do_motor2(throttle_2);
           do_motor3(throttle_3);
@@ -800,8 +809,8 @@ void SensorTask(void *argument)
   tick = osKernelGetTickCount();
   /* Infinite loop */
   for(;;){
-    tick += 10U; // Tăng tick lên 10ms
-    // Gửi dữ liệu cảm biến mỗi 10ms
+    tick += 4U; // Tăng tick lên 4ms
+    // Gửi dữ liệu cảm biến mỗi 4ms
     if (_status & 0x02) {
       MPU6050_RawData raw_data;
       MPU6050_ConvertedData conv_data;
@@ -857,10 +866,10 @@ void RCTask(void *argument)
       _output_z = map_ibus_to_altitude(ibus.left_horizontal);
     }
     
-    // TIM2 -> CCR1 = 1000 + (ibus.left_horizontal - 1000 + 15);
-    // TIM5 -> CCR2 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-    // TIM5 -> CCR3 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
-    // TIM5 -> CCR4 = 6250 + (ibus.left_horizontal - 1000) * 6.25;
+    // TIM5 -> CCR1 = (uint16_t)(1100 + (ibus.left_horizontal - 1000) * 2.02); // 1100 to 1900us
+    // TIM5 -> CCR2 = (uint16_t)(1100 + (ibus.left_horizontal - 1000) * 2.02);
+    // TIM5 -> CCR3 = (uint16_t)(1100 + (ibus.left_horizontal - 1000) * 2.02);
+    // TIM5 -> CCR4 = (uint16_t)(1100 + (ibus.left_horizontal - 1000) * 2.02);
     osDelay(10);
   }
   /* USER CODE END RCTask */
@@ -885,7 +894,7 @@ void StateEstimatorTask(void *argument)
   Kalman_Init(&kf_roll);
   Kalman_Init(&kf_pitch);
 
-  float dt = 0.01f;
+  float dt = 0.004f;
   /* Infinite loop */
    for (;;) {
     if (osMessageQueueGet(sensorQueueHandle, &conv_data, NULL, osWaitForever) == osOK) {
@@ -911,9 +920,9 @@ void StateEstimatorTask(void *argument)
       else {
         _status |= 0x10; // Bit 4: Invalid sensor data
       }
-      osEventFlagsSet(runpidEventHandle, FLAGS_PID);
+//      osEventFlagsSet(runpidEventHandle, FLAGS_PID);
     }
-    osDelay(5); // 50Hz
+    osDelay(1); // 250Hz
   }
   /* USER CODE END StateEstimatorTask */
 }
@@ -929,44 +938,38 @@ void AutotuneTask(void *argument)
 {
   /* USER CODE BEGIN AutotuneTask */
 	float new_kp = 0.0f;
-	float new_ki = 0.0f;
-	char buf[50];
+	float new_kd = 0.0f;
+	//char buf[50];
 
-	// Chờ cho hệ thống khởi động
 	osDelay(5000);
 
-	// Thông báo bắt đầu quá trình tự động điều chỉnh
+	// Thông báo bắt đầu quá trình tự động đi�?u chỉnh
 	// sprintf(buf, "Starting autotuning process...\r\n");
 	// HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
   /* Infinite loop */
   for(;;)
   {
-        // Kiểm tra điều kiện an toàn trước khi bắt đầu
-    if (_output_z > 0) {  // Chỉ chạy khi có thrust
-        // Thực hiện quá trình tự động điều chỉnh
-        autotune_pid(&new_kp, &new_ki);
-        
-        // Cập nhật các tham số PID mới
-        float roll_rate_kp = new_kp;
-        float roll_rate_ki = new_ki;
-        float pitch_rate_kp = new_kp;
-        float pitch_rate_ki = new_ki;
-        
-        _pid_roll_cascade.rate.kp = &roll_rate_kp;
-        _pid_roll_cascade.rate.ki = &roll_rate_ki;
-        _pid_pitch_cascade.rate.kp = &pitch_rate_kp;
-        _pid_pitch_cascade.rate.ki = &pitch_rate_ki;
-        
-        // Gửi thông báo hoàn thành
-//        sprintf(buf, "Autotuning completed. New parameters applied.\r\n");
-//        HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
-        
-        // Chờ một khoảng thời gian trước khi thực hiện lại (nếu cần)
-        osDelay(60000);  // Chờ 1 phút
-    } else {
-        // Nếu không đủ điều kiện, chờ và kiểm tra lại
-        osDelay(1000);
+    if(_flag_tune == TUNE)
+    {
+      if (_output_z > 0) {  // Chỉ chạy khi có thrust
+          // Thực hiện quá trình tự động đi�?u chỉnh
+          autotune_pid(&new_kp, &new_kd);
+
+          // Cập nhật các tham số PID mới
+          
+          rate_kp = new_kp;
+          rate_kd = new_kd;
+          
+          // Gửi thông báo hoàn thành
+  //        sprintf(buf, "Autotuning completed. New parameters applied.\r\n");
+  //        HAL_UART_Transmit(&huart6, (uint8_t*)buf, strlen(buf), 100);
+          _flag_tune = NO_TUNE;
+          osDelay(60000);  //  1 phút
+      } else {
+          osDelay(1000);
+      }
     }
+  osDelay(1000);
   }
   /* USER CODE END AutotuneTask */
 }
